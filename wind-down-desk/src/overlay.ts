@@ -6,9 +6,22 @@
  * microphone is never requested). The choice is remembered; a small link in the bar changes it.
  */
 import { DefaultLoadingManager, VisibilityState, type World } from '@iwsdk/core';
+import { mountNoXrCard } from './landing/no-xr.ts';
+import { isComputer, type LandingPlan, type XrProbe } from './logic/xr-support.ts';
 import { services } from './services.ts';
+import { track } from './visits.ts';
 
-export function mountOverlay(world: World): void {
+export interface LandingState {
+  probe: XrProbe;
+  plan: LandingPlan;
+  /** The IWER emulator was installed for "Preview on this screen". */
+  emulated: boolean;
+}
+
+const DEMO_URL = String(import.meta.env.VITE_WDD_DEMO_URL ?? '');
+const SHORT_URL = String(import.meta.env.VITE_WDD_SHORT_URL ?? '');
+
+export function mountOverlay(world: World, landing: LandingState): void {
   const root = document.getElementById('landing');
   const button = document.getElementById('begin') as HTMLButtonElement | null;
   const status = document.getElementById('status');
@@ -27,10 +40,14 @@ export function mountOverlay(world: World): void {
         : 'The agent runs on this device. Voice needs the local server.';
   });
 
-  if (!world.xrEnabled) {
-    button.textContent = 'Open on Meta Quest';
-    button.title = 'Open this page in the Meta Quest browser';
-    button.disabled = true;
+  // 22 Oct: no immersive session possible here (a phone, a laptop without a headset) → the "Made for Meta Quest"
+  // card replaces the bar: never a button that fails. The emulated preview counts as a headset.
+  const sessionMode = landing.emulated ? 'immersive-ar' : landing.plan.mode;
+  if (!world.xrEnabled || sessionMode === 'none') {
+    root.querySelector('.bar')?.setAttribute('hidden', '');
+    mountNoXrCard(root, { plan: landing.plan, reason: landing.probe.api ? 'no-session' : 'no-webxr', demoUrl: DEMO_URL, shortUrl: SHORT_URL });
+    world.visibilityState.subscribe((state) => root.classList.toggle('hidden', state !== VisibilityState.NonImmersive));
+    return;
   }
 
   const choose = document.getElementById('choose');
@@ -48,16 +65,30 @@ export function mountOverlay(world: World): void {
     }
   };
   sync();
+  const alert = mountAlert(root);
   const begin = async () => {
+    alert.hide();
     button.disabled = true;
     button.textContent = 'Opening…';
     // A quiet evening never asks for the microphone (no permission prompt at all).
     if (!services.style.quiet) await services.voice.start();
-    world.launchXR();
+    // Passthrough when the browser offers it (Quest), else full VR (a PC headset, Quest 2 without AR).
+    world.launchXR(sessionMode === 'immersive-vr' ? ({ sessionMode: 'immersive-vr' } as Parameters<World['launchXR']>[0]) : undefined);
+    watchLaunch(world, () => {
+      button.disabled = false;
+      button.textContent = 'Begin';
+      track('landing', { kind: 'xr-failed' });
+      alert.show(begin, isComputer(matchMedia('(pointer: fine)').matches, innerWidth) ? preview : null);
+    });
     window.setTimeout(() => {
       button.disabled = false;
       button.textContent = 'Begin';
     }, 2500);
+  };
+  const preview = () => {
+    const url = new URL(location.href);
+    url.searchParams.set('preview', '1');
+    location.assign(url.toString());
   };
   button.addEventListener('click', () => void begin());
   choose?.addEventListener('click', (e) => {
@@ -77,6 +108,68 @@ export function mountOverlay(world: World): void {
   world.visibilityState.subscribe((state) => {
     root.classList.toggle('hidden', state !== VisibilityState.NonImmersive);
   });
+}
+
+/**
+ * IWSDK's launchXR only logs a refused session. Watch the request: once it is no longer pending and no session
+ * exists, it failed (refused, NotSupportedError, a PC runtime without a headset) → onFail. Gives up after 60 s.
+ */
+function watchLaunch(world: World, onFail: () => void): void {
+  const w = world as unknown as { session?: unknown; sessionRequestPending?: boolean };
+  const t0 = performance.now();
+  const tick = () => {
+    if (w.session != null) return;
+    if (w.sessionRequestPending !== true) {
+      onFail();
+      return;
+    }
+    if (performance.now() - t0 < 60_000) window.setTimeout(tick, 250);
+  };
+  window.setTimeout(tick, 250);
+}
+
+/** A clear message with an action when the immersive session could not open (never a silent return). */
+function mountAlert(root: HTMLElement): { show(retry: () => void, preview: (() => void) | null): void; hide(): void } {
+  const box = document.createElement('div');
+  box.className = 'xr-alert';
+  box.setAttribute('role', 'alert');
+  box.setAttribute('translate', 'no');
+  box.hidden = true;
+  const title = document.createElement('p');
+  title.className = 'xr-alert-title';
+  title.textContent = 'The headset view did not open.';
+  const body = document.createElement('p');
+  body.className = 'xr-alert-body';
+  body.textContent = 'Allow it when your browser asks, and check that your headset is on. On a phone or a computer without a headset, this experience needs a Meta Quest.';
+  const actions = document.createElement('div');
+  actions.className = 'xr-alert-actions';
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'xr-alert-primary';
+  retry.textContent = 'Try again';
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'xr-alert-secondary';
+  prev.textContent = 'Preview on this screen';
+  actions.append(retry, prev);
+  box.append(title, body, actions);
+  root.prepend(box);
+  let onRetry: (() => void) | null = null;
+  let onPreview: (() => void) | null = null;
+  retry.addEventListener('click', () => onRetry?.());
+  prev.addEventListener('click', () => onPreview?.());
+  return {
+    show(r, p) {
+      onRetry = r;
+      onPreview = p;
+      prev.hidden = p == null;
+      box.hidden = false;
+      retry.focus();
+    },
+    hide() {
+      box.hidden = true;
+    },
+  };
 }
 
 function markReady(): void {

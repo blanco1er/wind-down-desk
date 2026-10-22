@@ -147,6 +147,12 @@ if (ppl.length === 0) {
   if (style.length > 0) line(`Soirée : ${style.map(([s, n]) => `${s === 'quiet' ? 'silencieuse' : 'à la voix'} (${n})`).join(', ')}`);
   const secs = ppl.map((p) => p.secs).filter((s) => s > 0).sort((a, b) => a - b);
   if (secs.length > 0) line(`Durée de visite médiane : ${Math.round(secs[Math.floor(secs.length / 2)] / 60)} min (sur ${secs.length} visites mesurées)`);
+  const landing = count(events.filter((e) => e.e === 'landing'), (e) => e.d?.kind ?? '?');
+  if (landing.length > 0) {
+    const fr = { 'no-webxr': 'sans WebXR (téléphone…) : carte « Made for Meta Quest »', 'no-session': 'WebXR sans casque : carte « Made for Meta Quest »', 'preview-asked': 'aperçu émulé demandé', preview: 'aperçu émulé ouvert', 'xr-failed': 'échec d’ouverture de la session XR (message affiché)' };
+    line('Accueil :');
+    for (const [k, n] of landing) line(`  ${fr[k] ?? k} : ${n}`);
+  }
   const errors = events.filter((e) => e.e === 'client-error').length;
   line(`Erreurs JavaScript dans la page : ${errors}`);
   if (flag('--detail')) {

@@ -10,6 +10,8 @@
 import { World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { loadFonts } from './desk/fonts.ts';
+import { probeXr } from './landing/xr-detect.ts';
+import { planLanding } from './logic/xr-support.ts';
 import { mountOverlay } from './overlay.ts';
 import { PerfBeginSystem, PerfEndSystem } from './systems/perf-system.ts';
 import { RitualSystem } from './systems/ritual-system.ts';
@@ -20,15 +22,29 @@ trackPage();
 addEventListener('error', () => track('client-error', { where: 'window' }, 'client-error'));
 addEventListener('unhandledrejection', () => track('client-error', { where: 'promise' }, 'client-rejection'));
 
-// The engraved stones and bowls are drawn with the shipped typeface: load it first (≤ 2.5 s).
-void loadFonts()
-  .then(() => World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions))
-  .then((world) => {
+// The engraved stones and bowls are drawn with the shipped typeface: load it first (≤ 2.5 s). Meanwhile, ask the
+// browser which immersive sessions it can open (22 Oct: a phone or a laptop never gets a dead "Begin" button).
+// "Preview on this screen" (?preview=1, computer without a headset) installs the IWER emulator BEFORE the world.
+const params = new URLSearchParams(location.search);
+const planned = Promise.all([loadFonts(), probeXr()]).then(async ([, probe]) => {
+  const plan = planLanding(probe, {
+    finePointer: matchMedia('(pointer: fine)').matches,
+    width: innerWidth,
+    previewParam: params.get('preview') === '1',
+  });
+  let emulated = false;
+  if (plan.startPreview) emulated = await import('./preview/emulator.ts').then((m) => m.installEmulator());
+  return { probe, plan, emulated };
+});
+void planned
+  .then(async (landing) => ({ landing, world: await World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions) }))
+  .then(({ landing, world }) => {
   world
     .registerSystem(PerfBeginSystem, { priority: -100 })
     .registerSystem(RitualSystem, { priority: 10 })
     .registerSystem(PerfEndSystem, { priority: 100 });
-  mountOverlay(world);
+  mountOverlay(world, landing);
+  if (landing.emulated) void import('./preview/preview.ts').then((m) => m.startPreview(world));
   // Emulator-only film set (photographic room + table) for recording the demo; not in production builds.
   if (import.meta.env.DEV) {
     void import('./desk/film-set.ts').then((m) => m.mountFilmSet(world));

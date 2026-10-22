@@ -24,6 +24,8 @@ import type { Env } from './config.ts';
 /** Events the page may send, and the values each may carry. */
 export const EVENTS: Record<string, readonly string[]> = {
   page: ['ref', 'src', 'lang'],
+  /** 22 Oct: what the landing offered (no-webxr, no-session, preview-asked, preview, xr-failed). */
+  landing: ['kind'],
   'xr-enter': ['mode'],
   'xr-exit': ['secs'],
   placed: ['source', 'mode'],
