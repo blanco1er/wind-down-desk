@@ -1,0 +1,48 @@
+{
+  "name": "wind-down-desk",
+  "version": "0.8.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "iwsdk dev restart --open --foreground",
+    "playtest": "node tools/playtest.mjs",
+    "playtest:open": "node tools/playtest.mjs --open-only",
+    "dev:runtime": "vite",
+    "dev:down": "iwsdk dev down",
+    "dev:status": "iwsdk dev status",
+    "reference:status": "iwsdk reference status",
+    "reference:warmup": "iwsdk reference warmup",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.ts",
+    "server": "node server/index.ts",
+    "start": "WDD_SERVE_DIST=1 node server/index.ts",
+    "sounds": "node tools/make-sounds.mjs",
+    "check": "npm run typecheck && npm test && npm run build && node --test tests/bundle-secrets.test.ts"
+  },
+  "dependencies": {
+    "@iwsdk/core": "1.0.1",
+    "@pmndrs/uikit": "^1.0.74",
+    "@pmndrs/uikit-horizon": "^1.0.74",
+    "@pmndrs/uikit-lucide": "^1.0.74",
+    "three": "npm:super-three@0.181.0"
+  },
+  "devDependencies": {
+    "@iwsdk/cli": "1.0.1",
+    "@iwsdk/reference": "1.0.1",
+    "@iwsdk/vite-plugin-dev": "1.0.1",
+    "@meta-quest/metavr": "^1.8.1",
+    "@types/three": "^0.181.0",
+    "ktx2-encoder": "^0.6.0",
+    "typescript": "^5.5.0",
+    "vite": "^7.1.4"
+  },
+  "overrides": {
+    "sharp": "0.35.4",
+    "three": "npm:super-three@0.181.0"
+  },
+  "engines": {
+    "node": ">=20.19.0 <21.0.0-0 || >=22.12.0 <23.0.0-0 || >=24.0.0"
+  }
+}

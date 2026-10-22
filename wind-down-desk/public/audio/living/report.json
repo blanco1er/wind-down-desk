@@ -1,0 +1,99 @@
+{
+  "crackles": [
+    {
+      "file": "crackle-1.ogg",
+      "from": "Campfire_sound_ambience",
+      "t": 10.11,
+      "emergenceDb": 42.4,
+      "rmsDb": -41.9
+    },
+    {
+      "file": "crackle-2.ogg",
+      "from": "Campfire_sound_ambience",
+      "t": 12.955,
+      "emergenceDb": 45.1,
+      "rmsDb": -44.9
+    },
+    {
+      "file": "crackle-3.ogg",
+      "from": "Campfire_sound_ambience",
+      "t": 17.965,
+      "emergenceDb": 44.8,
+      "rmsDb": -43.9
+    },
+    {
+      "file": "crackle-4.ogg",
+      "from": "Campfire_sound_ambience",
+      "t": 21.555,
+      "emergenceDb": 45.2,
+      "rmsDb": -42.3
+    },
+    {
+      "file": "crackle-5.ogg",
+      "from": "Campfire_sound_ambience",
+      "t": 35.065,
+      "emergenceDb": 45.1,
+      "rmsDb": -44.2
+    },
+    {
+      "file": "crackle-6.ogg",
+      "from": "Campfire_sound_ambience",
+      "t": 42.66,
+      "emergenceDb": 42.5,
+      "rmsDb": -44.5
+    },
+    {
+      "file": "crackle-7.ogg",
+      "from": "OGA_AntumDeluge_fire-1",
+      "t": 2.325,
+      "emergenceDb": 20.8,
+      "rmsDb": -32.1
+    },
+    {
+      "file": "crackle-8.ogg",
+      "from": "OGA_AntumDeluge_fire-1",
+      "t": 0.795,
+      "emergenceDb": 20.7,
+      "rmsDb": -29.7
+    }
+  ],
+  "embers": {
+    "seconds": 21.5,
+    "rmsDb": -25.2,
+    "peakDb": -2
+  },
+  "surf": [
+    {
+      "file": "surf-1.ogg",
+      "sourceSecond": 134.1,
+      "rmsDb": -21.9,
+      "peakDb": -5.5
+    },
+    {
+      "file": "surf-2.ogg",
+      "sourceSecond": 141.5,
+      "rmsDb": -21.9,
+      "peakDb": -3.5
+    },
+    {
+      "file": "surf-3.ogg",
+      "sourceSecond": 151.85,
+      "rmsDb": -21.9,
+      "peakDb": -6.1
+    },
+    {
+      "file": "surf-4.ogg",
+      "sourceSecond": 159.95,
+      "rmsDb": -21.9,
+      "peakDb": -3.5
+    }
+  ],
+  "sea": {
+    "seconds": 23,
+    "rmsDb": -21.9
+  },
+  "wind": {
+    "seconds": 36,
+    "rmsDb": -21.9
+  }
+}

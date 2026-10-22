@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const browser = await chromium.launch({ headless: true, args: ['--use-angle=metal', '--ignore-gpu-blocklist'] });
+const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 } });
+const page = await ctx.newPage();
+await page.goto(process.argv[2]);
+await page.waitForFunction(() => window.__wdd != null && window.IWER_DEVICE != null, null, { timeout: 60000 });
+await wait(2500);
+await page.click((await page.isVisible('[data-style="talk"]')) ? '[data-style="talk"]' : '#begin');
+await page.waitForFunction(() => ['table', 'floating'].includes(window.__wdd.state().placement), null, { timeout: 30000 });
+await wait(2000);
+console.log(JSON.stringify(await page.evaluate(() => { const s = window.__wdd.state(); return { placement: s.placement, source: s.source, placedOn: s.placedOn && { ...s.placedOn, hits: [...new Set((s.placedOn.hits ?? []).map(String))] }, head: { p: window.IWER_DEVICE.position.toArray?.() ?? window.IWER_DEVICE.position, q: window.IWER_DEVICE.quaternion }, frame: s.frame, grounded: window.__wdd.debug().visuals.grounded }; })));
+await browser.close();
