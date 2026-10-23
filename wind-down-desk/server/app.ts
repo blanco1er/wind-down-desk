@@ -248,13 +248,28 @@ export function createApp(options: AppOptions = {}): { server: Server; providers
               .map((t) => ({ who: t.who === 'lamp' ? ('lamp' as const) : ('you' as const), text: t.text }))
           : [];
         guard('talk', ip);
-        const reply = await providers.agent.talk({
+        const input = {
           text,
           summary: typeof body.summary === 'string' ? cleanSummary(body.summary.slice(0, TALK.summaryChars)) : '',
           turns: boundTurns(turns),
           weights: strings(body.weights, TALK.maxWeights),
           closing: body.closing === true,
-        });
+        };
+        if (body.stream === true) {
+          // Lower latency (25 Oct): server-sent events, one per finished sentence, then the checked whole answer.
+          res.writeHead(200, {
+            ...SECURITY_HEADERS,
+            'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-store',
+            ...(origin != null ? { 'access-control-allow-origin': origin, vary: 'origin' } : {}),
+          });
+          const agent = providers.agent;
+          const onSentence = (sentence: string) => res.write(`data: ${JSON.stringify({ type: 'sentence', text: sentence })}\n\n`);
+          const reply = agent.talkStream != null ? await agent.talkStream(input, onSentence) : await agent.talk(input);
+          res.end(`data: ${JSON.stringify({ type: 'done', ...reply, summary: cleanSummary(reply.summary), agent: agent.name })}\n\n`);
+          return;
+        }
+        const reply = await providers.agent.talk(input);
         send(res, 200, { ...reply, summary: cleanSummary(reply.summary), agent: providers.agent.name }, origin);
         return;
       }

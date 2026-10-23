@@ -3,7 +3,7 @@
  * offline fallback in the browser, and the reference for tests.
  * It is deliberately modest: clean splitting, short titles, honest heuristics.
  */
-import { deviceTalk, type TalkInput, type TalkReply } from './talk.ts';
+import { deviceTalk, spokenSentences, type TalkInput, type TalkReply } from './talk.ts';
 import type { BinId } from '../../logic/desk-layout.ts';
 import { capitalize, normalize, shorten, similarity } from '../../logic/text.ts';
 import { LIMITS, type Agent, type PlanInput, type PlanStep, type TomorrowPlan, type WorryDraft } from './types.ts';
@@ -191,5 +191,11 @@ export class SimulatedAgent implements Agent {
 
   async talk(input: TalkInput): Promise<TalkReply> {
     return deviceTalk(input, (text) => extractDrafts(text, input.weights).map((d) => d.title), this.talkTurns++);
+  }
+
+  async talkStream(input: TalkInput, onSentence: (sentence: string) => void): Promise<TalkReply> {
+    const r = await this.talk(input);
+    if (!r.crisis) for (const s of spokenSentences(r.reply, true)) onSentence(s);
+    return r;
   }
 }

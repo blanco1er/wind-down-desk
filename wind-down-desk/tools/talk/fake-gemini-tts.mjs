@@ -37,7 +37,8 @@ createServer(async (req, res) => {
   console.log(JSON.stringify({ t: new Date().toISOString(), model: j.model, voice: j.generation_config?.speech_config?.[0]?.voice, style: j.input?.[0]?.content?.[0]?.annotations?.[0]?.style, chars: text.length, stream: j.stream, key: req.headers['x-goog-api-key'] ? 'present' : 'missing' }));
   const pcm = hum(Math.max(1, Math.min(12, text.length / 12)));
   res.writeHead(200, { 'content-type': 'text/event-stream' });
-  await wait(600);
+  // First byte after FIRST_MS (default 1320 ms: the owner's live measure of 25 Oct).
+  await wait(Number(process.env.FIRST_MS ?? 1320));
   const step = RATE * 2 * 0.25;
   for (let i = 0; i < pcm.length; i += step) {
     res.write(`event: step.delta\ndata: ${JSON.stringify({ event_type: 'step.delta', delta: { type: 'audio', data: pcm.subarray(i, i + step).toString('base64') } })}\n\n`);

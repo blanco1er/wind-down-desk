@@ -10,6 +10,11 @@ const RATE = 24_000;
 /** Schedule audio in blocks of at least this many samples (0.2 s): fewer nodes, no gaps. */
 const BLOCK = 4800;
 
+interface Job {
+  pending: Float32Array[];
+  done: boolean;
+}
+
 export class TtsPlayer {
   /** 0..1 loudness of what is playing now (for the lamp). */
   level = 0;
@@ -20,6 +25,8 @@ export class TtsPlayer {
   private readonly wave: Float32Array<ArrayBuffer>;
   private abort: AbortController | null = null;
   private sources: AudioBufferSourceNode[] = [];
+  /** Sentences in order; only the first one schedules directly, the others keep their sound until their turn. */
+  private jobs: Job[] = [];
   private endsAt = 0;
   /** Muted ("Sound off"): the caption alone. */
   muted = false;
@@ -60,21 +67,35 @@ export class TtsPlayer {
   }
 
   /**
-   * Speaks `text`; resolves when the sound has been scheduled to its end ('played'), or at once with 'unavailable'
-   * (no server voice, over the daily budget, network error, muted).
+   * Speaks `text` now (whatever was playing stops); resolves once its sound is fully received ('played'), or with
+   * 'unavailable' (no server voice, over the daily budget, network error, muted).
    */
-  async speak(text: string): Promise<'played' | 'unavailable'> {
+  speak(text: string): Promise<'played' | 'unavailable'> {
     this.stop();
+    return this.append(text);
+  }
+
+  /**
+   * Speaks `text` after what is already queued (25 Oct, lower latency: the reply arrives sentence by sentence).
+   * Its sound is requested at once and kept aside, then played the moment the previous sentence ends: no gap.
+   */
+  async append(text: string): Promise<'played' | 'unavailable'> {
     if (this.muted) return 'unavailable';
-    const abort = new AbortController();
-    this.abort = abort;
+    if (this.abort == null) this.abort = new AbortController();
+    const abort = this.abort;
+    const job: Job = { pending: [], done: false };
+    this.jobs.push(job);
     let res: Response;
     try {
       res = await fetch(`${API}/speak`, { method: 'POST', signal: abort.signal, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
     } catch {
+      this.finish(job);
       return 'unavailable';
     }
-    if (!res.ok || res.body == null) return 'unavailable';
+    if (!res.ok || res.body == null) {
+      this.finish(job);
+      return 'unavailable';
+    }
     if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
     const reader = res.body.getReader();
     let carry: number | null = null;
@@ -83,19 +104,9 @@ export class TtsPlayer {
     let any = false;
     const flush = () => {
       if (filled === 0) return;
-      const buffer = this.ctx.createBuffer(1, filled, RATE);
-      buffer.copyToChannel(block.subarray(0, filled), 0);
-      const src = this.ctx.createBufferSource();
-      src.buffer = buffer;
-      src.connect(this.gain);
-      const at = Math.max(this.ctx.currentTime + 0.05, this.endsAt);
-      src.start(at);
-      this.endsAt = at + filled / RATE;
-      this.sources.push(src);
-      src.onended = () => {
-        const i = this.sources.indexOf(src);
-        if (i >= 0) this.sources.splice(i, 1);
-      };
+      const samples = block.subarray(0, filled);
+      if (this.jobs[0] === job) this.schedule(samples);
+      else job.pending.push(samples);
       block = new Float32Array(BLOCK * 2);
       filled = 0;
       any = true;
@@ -122,8 +133,36 @@ export class TtsPlayer {
     } catch {
       flush();
     }
-    if (!any) return 'unavailable';
-    return 'played';
+    this.finish(job);
+    return any ? 'played' : 'unavailable';
+  }
+
+  /** A sentence fully received: the next one in the queue plays its kept sound right after. */
+  private finish(job: Job): void {
+    job.done = true;
+    while (this.jobs.length > 0 && this.jobs[0].done) {
+      this.jobs.shift();
+      const next = this.jobs[0];
+      if (next == null) break;
+      for (const samples of next.pending) this.schedule(samples);
+      next.pending = [];
+    }
+  }
+
+  private schedule(samples: Float32Array): void {
+    const buffer = this.ctx.createBuffer(1, samples.length, RATE);
+    buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(this.gain);
+    const at = Math.max(this.ctx.currentTime + 0.05, this.endsAt);
+    src.start(at);
+    this.endsAt = at + samples.length / RATE;
+    this.sources.push(src);
+    src.onended = () => {
+      const k = this.sources.indexOf(src);
+      if (k >= 0) this.sources.splice(k, 1);
+    };
   }
 
   stop(): void {
@@ -137,6 +176,7 @@ export class TtsPlayer {
       }
     }
     this.sources = [];
+    this.jobs = [];
     this.endsAt = 0;
     this.level = 0;
   }

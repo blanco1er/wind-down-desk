@@ -48,3 +48,13 @@ test('45 minutes at most: the end is announced at 40, then a gentle close; the o
   assert.ok(r.reply.includes('?'));
   assert.equal(deviceTalk({ text: 'I want to die', summary: '', turns: [], weights: [] }, () => [], 1).reply, CRISIS_REPLY);
 });
+
+test('lower latency: the reply is read from JSON still being written, sentence by sentence', async () => {
+  const { partialReply, spokenSentences } = await import('../src/shared/agent/talk.ts');
+  assert.deepEqual(partialReply('{"reply": "That sounds hard. You did'), { text: 'That sounds hard. You did', closed: false });
+  assert.deepEqual(partialReply('{"reply":"A \\"quoted\\" word.","weights":[]}'), { text: 'A "quoted" word.', closed: true });
+  assert.equal(partialReply('{"weights":[]'), null);
+  assert.deepEqual(spokenSentences('That sounds hard. You did', false), ['That sounds hard.']);
+  assert.deepEqual(spokenSentences('That sounds hard.', false), [], 'a sentence is only sure once something follows');
+  assert.deepEqual(spokenSentences('That sounds hard. What weighs most?', true), ['That sounds hard.', 'What weighs most?']);
+});

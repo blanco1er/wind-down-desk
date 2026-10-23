@@ -5,7 +5,7 @@
  */
 import { SimulatedAgent } from './shared/agent/simulated.ts';
 import type { PlanInput, TomorrowPlan, WorryDraft } from './shared/agent/types.ts';
-import { boundTurns, type TalkInput, type TalkReply } from './shared/agent/talk.ts';
+import { boundTurns, spokenSentences, type TalkInput, type TalkReply } from './shared/agent/talk.ts';
 
 export interface AgentStatus {
   mode: 'server' | 'device';
@@ -135,6 +135,53 @@ export class AgentClient {
       }
     }
     return this.local.talk(input);
+  }
+
+  /**
+   * The same turn, streamed (25 Oct, lower voice latency): each finished sentence arrives as soon as the model has
+   * written it; resolves with the checked whole answer. Falls back to the on-device listener.
+   */
+  async talkStream(input: TalkInput, onSentence: (sentence: string) => void): Promise<TalkReply> {
+    if (this.status.mode === 'server') {
+      let sentences = 0;
+      try {
+        return await withTimeout(15_000, async (signal) => {
+          const res = await fetch(`${API}/talk`, {
+            method: 'POST',
+            signal,
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...input, turns: boundTurns(input.turns), stream: true }),
+          });
+          if (!res.ok || res.body == null) throw new Error(String(res.status));
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let cut: number;
+            while ((cut = buffer.indexOf('\n\n')) >= 0) {
+              const line = buffer.slice(0, cut).trim();
+              buffer = buffer.slice(cut + 2);
+              if (!line.startsWith('data:')) continue;
+              const event = JSON.parse(line.slice(5)) as { type: string; text?: string } & TalkReply;
+              if (event.type === 'sentence' && typeof event.text === 'string') {
+                sentences++;
+                onSentence(event.text);
+              } else if (event.type === 'done') return event;
+            }
+          }
+          throw new Error('stream ended without an answer');
+        });
+      } catch {
+        // Fall through to the on-device listener (only speak its words if nothing was said yet).
+        const r = await this.local.talk(input);
+        if (sentences === 0 && !r.crisis) for (const s of spokenSentences(r.reply, true)) onSentence(s);
+        return r;
+      }
+    }
+    return this.local.talkStream(input, onSentence);
   }
 
   /** Server-side transcription. Returns null when no server is reachable. */

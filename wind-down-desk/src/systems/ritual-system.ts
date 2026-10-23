@@ -37,7 +37,7 @@ import { accessLine, DWELL_SELECT, parseAccessCommand, type AccessPrefs } from '
 import { answerOf, isForgetCommand } from '../logic/recall.ts';
 import { bubbleLines, DONE_BUBBLE } from '../logic/bubbles.ts';
 import { TtsPlayer } from '../voice/tts-player.ts';
-import { TALK_OPENING, talkClock, WIND_DOWN_LINE, type TalkReply, type TalkTurn } from '../shared/agent/talk.ts';
+import { spokenSentences, TALK_OPENING, talkClock, WIND_DOWN_LINE, type TalkReply, type TalkTurn } from '../shared/agent/talk.ts';
 import { cleanSummary, crisisInModelText, crisisSignal, CRISIS_REPLY, HELP_ROWS } from '../shared/agent/safety.ts';
 
 /** Seconds of silence before the example stone when suggestion bubbles are offered (8 s otherwise, onboarding.ts). */
@@ -2444,10 +2444,46 @@ export class RitualSystem extends createSystem({
     this.say(this.baseCaption.text || TALK_OPENING, `"${text.length > 70 ? `${text.slice(0, 67)}…` : text}"`);
     const input = { text, summary: talk.summary, turns: talk.turns.slice(), weights: talk.weights.slice(), closing: false };
     talk.turns.push({ who: 'you', text });
-    void services.agent.talk(input).then((r) => this.onTalkReply(talk, r));
+    // Lower latency (25 Oct): the reply arrives sentence by sentence; the first one is shown and spoken at once,
+    // the next ones queue behind it in the lamp's voice; the whole checked answer has the last word.
+    const heard: string[] = [];
+    const asked = this.elapsed;
+    if (this.talkNoStream) {
+      // Test only (latency A/B): the former path, whole answer first, then the voice.
+      void services.agent.talk(input).then((r) => this.onTalkReply(talk, r));
+      return;
+    }
+    void services.agent
+      .talkStream(input, (sentence) => {
+        if (this.talk !== talk) return;
+        heard.push(sentence);
+        if (heard.length === 1) {
+          this.talkFirstSentenceS = this.elapsed - asked;
+          this.say(sentence);
+        }
+        this.ttsSay(sentence, heard.length > 1);
+      })
+      .then((r) => this.onTalkReply(talk, r, heard));
   }
 
-  private onTalkReply(talk: NonNullable<RitualSystem['talk']>, r: TalkReply): void {
+  /** Test only (latency A/B, debug API `talkStream(false)`): the whole answer first. */
+  private talkNoStream = false;
+  /** Seconds from the end of your sentence to the lamp's first sentence (test/debug). */
+  private talkFirstSentenceS = 0;
+
+  /** The dynamic voice only (the caption is handled by the caller): now, or after what is already queued. */
+  private ttsSay(text: string, queue: boolean): void {
+    const player = this.ttsPlayer();
+    if (player == null || this.voice.muted || this.voice.quiet || this.elapsed < this.ttsRetryAt) return;
+    void (queue ? player.append(text) : player.speak(text)).then((r) => {
+      if (r === 'unavailable') {
+        this.ttsRetryAt = this.elapsed + 30;
+        track('talk', { event: 'voice-unavailable' }, 'talk:voice-unavailable');
+      }
+    });
+  }
+
+  private onTalkReply(talk: NonNullable<RitualSystem['talk']>, r: TalkReply, heard: string[] = []): void {
     if (this.talk !== talk || this.mode !== 'talk') return;
     talk.busy = false;
     // Third net, in the browser: whatever the server said, a reply about a crisis is a crisis.
@@ -2458,6 +2494,7 @@ export class RitualSystem extends createSystem({
       const last = talk.turns.length - 1;
       if (last >= 0 && talk.turns[last].who === 'you') talk.turns.splice(last, 1);
       talk.queued = null;
+      this.tts?.stop();
       this.showHelp();
       this.lampSpeak(CRISIS_REPLY);
       return;
@@ -2469,7 +2506,14 @@ export class RitualSystem extends createSystem({
       talk.weights.push(w);
       this.spawnStone({ title: w, detail: w, suggestion: 'let-go' }, 0.4, 'voice');
     }
-    this.lampSpeak(r.reply);
+    if (heard.length === 0) {
+      this.lampSpeak(r.reply);
+    } else {
+      // Already speaking: the caption shows the whole reply; what was not streamed yet follows in the voice.
+      this.say(r.reply);
+      const all = spokenSentences(r.reply, true);
+      for (let i = heard.length; i < all.length; i++) this.ttsSay(all[i], true);
+    }
     track('talk', { event: 'turn' });
     if (talk.queued != null) {
       const q = talk.queued;
@@ -3383,9 +3427,15 @@ export class RitualSystem extends createSystem({
           speaking: this.tts?.speaking ?? false,
           level: +(this.tts?.level ?? 0).toFixed(2),
           voiceRetryIn: Math.max(0, +(this.ttsRetryAt - this.elapsed).toFixed(1)),
+          firstSentenceS: +this.talkFirstSentenceS.toFixed(2),
           card: (this.visuals as unknown as { card: { visible: boolean } }).card.visible,
           caption: this.baseCaption.text,
         };
+      },
+      /** Latency A/B (tests): false = the former path (whole answer, then the voice). */
+      talkStream: (on: boolean) => {
+        this.talkNoStream = !on;
+        return on;
       },
       /** The lamp's states on demand (axe 4 captures): idle, listen, speak, think, look; null gives it back. */
       lamp: (state: 'idle' | 'listen' | 'speak' | 'think' | 'look' | null) => {

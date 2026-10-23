@@ -9,17 +9,26 @@ import { cleanWeightTitle } from './weight.ts';
 import { SimulatedAgent } from './simulated.ts';
 import type { Agent, PlanInput, TomorrowPlan, WorryDraft } from './types.ts';
 
-import { cleanSummary, crisisSignal, CRISIS_REPLY, TALK_SYSTEM } from './safety.ts';
-import { parseTalkReply, talkUser, type TalkInput, type TalkReply } from './talk.ts';
+import { cleanSummary, crisisInModelText, crisisSignal, CRISIS_REPLY, TALK_SYSTEM } from './safety.ts';
+import { parseTalkReply, partialReply, spokenSentences, talkUser, type TalkInput, type TalkReply } from './talk.ts';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
+export interface ChatOptions {
+  json: boolean;
+  maxTokens: number;
+  /** Overrides the provider's reasoning effort for this call (Talk it through: "minimal" on Gemini). */
+  reasoningEffort?: string;
+}
+
 export interface ChatProvider {
   readonly name: string;
-  complete(messages: ChatMessage[], options: { json: boolean; maxTokens: number }): Promise<string>;
+  complete(messages: ChatMessage[], options: ChatOptions): Promise<string>;
+  /** Streamed answer: `onText` receives the whole text so far, many times; resolves with the full text. */
+  stream?(messages: ChatMessage[], options: ChatOptions, onText: (soFar: string) => void): Promise<string>;
 }
 
 export interface AgentStats {
@@ -34,9 +43,13 @@ export class LlmAgent implements Agent {
   private readonly provider: ChatProvider;
   private readonly fallback = new SimulatedAgent();
 
-  constructor(provider: ChatProvider) {
+  private readonly talkEffort: string | undefined;
+
+  /** `talkReasoningEffort`: reasoning for Talk it through turns (lower = the voice starts sooner). */
+  constructor(provider: ChatProvider, options: { talkReasoningEffort?: string } = {}) {
     this.provider = provider;
     this.name = provider.name;
+    this.talkEffort = options.talkReasoningEffort;
   }
 
   async extract(text: string, existing: string[] = []): Promise<WorryDraft[]> {
@@ -116,7 +129,7 @@ export class LlmAgent implements Agent {
           { role: 'system', content: TALK_SYSTEM },
           { role: 'user', content: talkUser(input) },
         ],
-        { json: true, maxTokens: 450 },
+        { json: true, maxTokens: 450, reasoningEffort: this.talkEffort },
       );
       const reply = parseTalkReply(raw, input);
       if (reply != null) return reply;
@@ -124,6 +137,52 @@ export class LlmAgent implements Agent {
     } catch (error) {
       this.noteFallback(error);
       return this.fallback.talk(input);
+    }
+  }
+
+  /**
+   * The same turn, streamed: each finished sentence of the reply goes to `onSentence` (and so to the voice) while
+   * the model is still writing. Every sentence passes the second safety net first; one that touches a crisis stops
+   * the flow, and the final answer (checked whole, reply and summary) decides.
+   */
+  async talkStream(input: TalkInput, onSentence: (sentence: string) => void): Promise<TalkReply> {
+    if (crisisSignal(input.text) || this.provider.stream == null) {
+      const r = await this.talk(input);
+      if (!r.crisis) for (const s of spokenSentences(r.reply, true)) onSentence(s);
+      return r;
+    }
+    let sent = 0;
+    let stopped = false;
+    try {
+      this.stats.llmCalls++;
+      const raw = await this.provider.stream(
+        [
+          { role: 'system', content: TALK_SYSTEM },
+          { role: 'user', content: talkUser(input) },
+        ],
+        { json: true, maxTokens: 450, reasoningEffort: this.talkEffort },
+        (soFar) => {
+          if (stopped) return;
+          const p = partialReply(soFar);
+          if (p == null) return;
+          const sentences = spokenSentences(p.text, p.closed);
+          for (; sent < sentences.length; sent++) {
+            if (crisisInModelText(sentences[sent])) {
+              stopped = true;
+              return;
+            }
+            onSentence(sentences[sent]);
+          }
+        },
+      );
+      const reply = parseTalkReply(raw, input);
+      if (reply != null) return reply;
+      throw new Error('unparseable talk reply');
+    } catch (error) {
+      this.noteFallback(error);
+      const r = await this.fallback.talk(input);
+      if (sent === 0 && !r.crisis) for (const s of spokenSentences(r.reply, true)) onSentence(s);
+      return r;
     }
   }
 

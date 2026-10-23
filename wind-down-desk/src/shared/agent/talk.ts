@@ -156,3 +156,53 @@ export function talkClock(minutes: number, announced: boolean): 'talk' | 'announ
 
 export const WIND_DOWN_LINE = 'We have about five more minutes together tonight. Take your time.';
 export const TALK_OPENING = 'I am here. Tell me whatever is on your mind. I will listen.';
+
+/**
+ * Lower latency (25 Oct, owner's live measure: 3.8 s from your last word to the lamp's voice). The model streams its
+ * JSON; as soon as the "reply" string holds a whole sentence, that sentence goes to the voice while the rest is still
+ * being written. `partialReply` reads the reply string from JSON still being written (escapes decoded).
+ */
+export function partialReply(raw: string): { text: string; closed: boolean } | null {
+  const m = /"reply"\s*:\s*"/u.exec(raw);
+  if (m == null) return null;
+  let i = m.index + m[0].length;
+  let out = '';
+  for (; i < raw.length; i++) {
+    const c = raw[i];
+    if (c === '"') return { text: out, closed: true };
+    if (c === '\\') {
+      if (i + 1 >= raw.length) break;
+      const n = raw[++i];
+      if (n === 'u') {
+        if (i + 4 >= raw.length) break;
+        out += String.fromCharCode(parseInt(raw.slice(i + 1, i + 5), 16));
+        i += 4;
+      } else out += n === 'n' ? ' ' : n === 't' ? ' ' : n;
+      continue;
+    }
+    out += c;
+  }
+  return { text: out, closed: false };
+}
+
+/**
+ * The finished sentences of a reply so far (the last fragment is held back until it ends, unless `final`), never
+ * past the spoken length limit. Markdown is removed as in `spokenCut`.
+ */
+export function spokenSentences(text: string, final: boolean): string[] {
+  const t = text.replace(/\s+/gu, ' ').replace(/[*_#`]/gu, '').trimStart();
+  const out: string[] = [];
+  let used = 0;
+  const re = /[^.!?…]+(?:[.!?…]+|$)/gu;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t)) != null) {
+    const s = m[0].trim();
+    if (s.length === 0) continue;
+    const ended = /[.!?…]$/u.test(s) && (final || m.index + m[0].length < t.length);
+    if (!ended && !final) break;
+    if (used + s.length > TALK.replyChars) break;
+    out.push(s);
+    used += s.length + 1;
+  }
+  return out;
+}

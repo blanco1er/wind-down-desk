@@ -52,6 +52,8 @@ export interface Agent {
   summarize(text: string): Promise<string>;
   /** "Talk it through": one turn of a free conversation (bounded history, safety first; talk.ts). */
   talk(input: TalkInput): Promise<TalkReply>;
+  /** The same turn, each finished sentence of the reply given as soon as it is written (lower voice latency). */
+  talkStream?(input: TalkInput, onSentence: (sentence: string) => void): Promise<TalkReply>;
 }
 
 export const LIMITS = {

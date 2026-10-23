@@ -9,7 +9,7 @@
  * `max_tokens` counts the thinking: on Gemini hosts max_tokens is never below 1024 so a short answer is not cut
  * to nothing. Any error, empty or null content -> the caller (LlmAgent) uses the on-device agent instead.
  */
-import type { ChatMessage, ChatProvider } from '../../src/shared/agent/llm-agent.ts';
+import type { ChatMessage, ChatOptions, ChatProvider } from '../../src/shared/agent/llm-agent.ts';
 
 export interface OpenAICompatibleOptions {
   name: string;
@@ -99,7 +99,71 @@ export class OpenAICompatibleChat implements ChatProvider {
     this.gemini = isGeminiHost(options.baseUrl) || /^gemini/iu.test(options.model);
   }
 
-  async complete(messages: ChatMessage[], options: { json: boolean; maxTokens: number }): Promise<string> {
+  private body(messages: ChatMessage[], options: ChatOptions, stream: boolean): string {
+    const effort = options.reasoningEffort ?? this.reasoningEffort;
+    return JSON.stringify(
+      portableBody({
+        model: this.model,
+        messages,
+        temperature: 0.3,
+        max_tokens: this.gemini ? Math.max(1024, options.maxTokens) : options.maxTokens,
+        ...(options.json ? { response_format: { type: 'json_object' } } : {}),
+        ...(effort ? { reasoning_effort: effort } : {}),
+        ...(stream ? { stream: true } : {}),
+      }),
+    );
+  }
+
+  /** Server-sent events of an OpenAI-compatible stream ("data: {choices:[{delta:{content}}]}", "data: [DONE]"). */
+  async stream(messages: ChatMessage[], options: ChatOptions, onText: (soFar: string) => void): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` },
+        body: this.body(messages, options, true),
+      });
+      if (!response.ok || response.body == null) throw new Error(`LLM HTTP ${response.status}`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let text = '';
+      let used = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const j = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string | null } }>; usage?: { total_tokens?: number } };
+            const piece = j.choices?.[0]?.delta?.content;
+            if (typeof piece === 'string' && piece.length > 0) {
+              text += piece;
+              onText(text);
+            }
+            if (j.usage?.total_tokens != null) used = j.usage.total_tokens;
+          } catch {
+            // A keep-alive or a partial line: ignored.
+          }
+        }
+      }
+      this.onUsage?.(used > 0 ? used : 1500);
+      if (text.length === 0) throw new Error('LLM returned no content');
+      return text;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async complete(messages: ChatMessage[], options: ChatOptions): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -110,16 +174,7 @@ export class OpenAICompatibleChat implements ChatProvider {
           'content-type': 'application/json',
           authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify(
-          portableBody({
-            model: this.model,
-            messages,
-            temperature: 0.3,
-            max_tokens: this.gemini ? Math.max(1024, options.maxTokens) : options.maxTokens,
-            ...(options.json ? { response_format: { type: 'json_object' } } : {}),
-            ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
-          }),
-        ),
+        body: this.body(messages, options, false),
       });
       if (!response.ok) {
         throw new Error(`LLM HTTP ${response.status}`);

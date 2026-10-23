@@ -16,7 +16,7 @@
 import { LlmAgent } from '../src/shared/agent/llm-agent.ts';
 import { SimulatedAgent } from '../src/shared/agent/simulated.ts';
 import type { Agent } from '../src/shared/agent/types.ts';
-import { OpenAICompatibleChat } from './providers/llm.ts';
+import { isGeminiHost, OpenAICompatibleChat } from './providers/llm.ts';
 import { OpenAICompatibleStt, SimulatedStt, type SttProvider } from './providers/stt.ts';
 import { ttsFromEnv, type TtsProvider } from './providers/tts.ts';
 
@@ -46,6 +46,8 @@ export function resolveProviders(env: Env, hooks: { onUsage?: (tokens: number) =
     );
     simulatedAgent = false;
   } else if (!forceSimulated && env.LLM_BASE_URL && env.LLM_API_KEY) {
+    // Talk it through on Gemini: minimal reasoning so the lamp's voice starts sooner (LLM_TALK_REASONING_EFFORT).
+    const talkEffort = env.LLM_TALK_REASONING_EFFORT || (isGeminiHost(env.LLM_BASE_URL) || /^gemini/iu.test(env.LLM_MODEL ?? '') ? 'minimal' : undefined);
     agent = new LlmAgent(
       new OpenAICompatibleChat({
         name: `OpenAI-compatible (${env.LLM_MODEL ?? 'default'})`,
@@ -56,6 +58,7 @@ export function resolveProviders(env: Env, hooks: { onUsage?: (tokens: number) =
         timeoutMs: Number(env.LLM_TIMEOUT_MS) > 0 ? Number(env.LLM_TIMEOUT_MS) : undefined,
         onUsage: hooks.onUsage,
       }),
+      { talkReasoningEffort: talkEffort },
     );
     simulatedAgent = false;
   }
