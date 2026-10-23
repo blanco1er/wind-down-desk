@@ -95,7 +95,33 @@ export class VoiceInput {
   /** While the lamp talks (and 0.3 s after), new utterances are not started: it never hears itself. */
   holdUntil = 0;
 
+  /**
+   * 23 Oct — pause / resume (headset off, Meta menu, tab hidden): the microphone stops listening and an utterance
+   * in progress is thrown away (never transcribed later); resume picks up exactly where it was, muted or not.
+   */
+  pause(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.paused = paused;
+    if (paused) {
+      this.discard = true;
+      if (this.recorder?.state === 'recording') this.recorder.stop();
+      this.stream?.getAudioTracks().forEach((t) => (t.enabled = false));
+      void this.ctx?.suspend().catch(() => {});
+    } else {
+      this.stream?.getAudioTracks().forEach((t) => (t.enabled = this.state !== 'muted'));
+      void this.ctx?.resume().catch(() => {});
+    }
+    this.level = 0;
+  }
+
+  private paused = false;
+  private discard = false;
+
   tick(nowMs: number): void {
+    if (this.paused) {
+      this.level = 0;
+      return;
+    }
     if (nowMs < this.holdUntil && this.recorder?.state !== 'recording') {
       this.level *= 0.9;
       return;
@@ -128,9 +154,14 @@ export class VoiceInput {
         this.chunks.push(e.data);
       }
     };
+    this.discard = false;
     this.recorder.onstop = () => {
       const clip = new Blob(this.chunks, { type: this.recorder?.mimeType || mimeType || 'audio/webm' });
       this.chunks = [];
+      if (this.discard) {
+        this.discard = false;
+        return;
+      }
       if (clip.size > 1500) {
         this.onUtterance?.(clip);
       }

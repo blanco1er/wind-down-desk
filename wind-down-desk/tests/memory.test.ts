@@ -86,3 +86,12 @@ test('a demo history (film only) gives a streak and a sky, and no morning plan',
   const morning = new RitualMemory(kv, () => new Date(2026, 9, 19, 8, 0));
   assert.equal(morning.morningPlan(), null);
 });
+
+test('a second evening shows its number from the first seconds (progress visible)', () => {
+  const store = new Map<string, string>();
+  const s = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+  const first = new RitualMemory(s, () => new Date('2026-10-20T21:00:00'));
+  first.recordNight({ tomorrow: ['Call the dentist'], later: [], letGo: ['That comment'] });
+  const second = new RitualMemory(s, () => new Date('2026-10-22T21:00:00'));
+  assert.equal(second.welcomeLine(), 'Evening 2 at your desk. 1 star in your sky.');
+});

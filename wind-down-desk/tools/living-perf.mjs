@@ -21,6 +21,13 @@ const cdp = await ctx.newCDPSession(page);
 await page.goto(url);
 await page.waitForFunction(() => window.__wdd != null && window.IWER_DEVICE != null, null, { timeout: 60000 });
 await wait(2500);
+// WDD_RETURNING=1: a returning visitor (21 evenings of history), so the arrival is the lamp's proposal as in the
+// earlier measurements; without it a fresh profile gets the first-evening onboarding (Unload, example stone, ghost hand).
+if (process.env.WDD_RETURNING === '1') await page.evaluate(() => window.__wdd?.film?.history?.(21));
+// WDD_ACCESS=1: every accessibility setting on (gaze-only selection, high contrast, larger text).
+// WDD_ACCESS=visual: contrast + larger text only (with gaze selection on, the scripted head dwells on buttons and opens menus).
+if (process.env.WDD_ACCESS === '1') await page.evaluate(() => window.__wdd.access({ gazeSelect: true, contrast: true, largeText: true }));
+if (process.env.WDD_ACCESS === 'visual') await page.evaluate(() => window.__wdd.access({ contrast: true, largeText: true }));
 await page.click((await page.isVisible('[data-style="talk"]')) ? '[data-style="talk"]' : '#begin');
 await page.waitForFunction(() => ['table', 'floating'].includes(window.__wdd.state().placement) && window.__wddPlayer != null, null, { timeout: 30000 });
 await wait(3000);

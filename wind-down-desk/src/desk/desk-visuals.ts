@@ -31,7 +31,9 @@ import { LivingPlaces } from './living/index.ts';
 import { ktx2Bytes, loadKtx2 } from './ktx2.ts';
 import { MENU_PLACES, PLACES, type PlaceId } from '../logic/places.ts';
 import {
+  CARD_CONTRAST,
   createCardMaterial,
+  createDwellRingMaterial,
   createGlowMaterial,
   createOrbMaterial,
   createTrayMaterial,
@@ -81,6 +83,27 @@ function onPane(layout: DeskLayout, dx: number, dy: number, out: Vector3): Vecto
   return out.set(dx, PANE.y + dy * Math.cos(PANE.tilt), PANE.z(layout) + dy * Math.sin(PANE.tilt));
 }
 
+/**
+ * 23 Oct — airplane-seat test: the touch menus (words, Places, Move desk, the switch) come to you when they open:
+ * from the caption plane at the back (76–94 cm from the shoulder, measured) to a near plane above the front of the
+ * bowls, tilted toward you (≤ ≈ 60 cm), and go back when they close. The caption stays at the back.
+ */
+/** Touch words stay above the bowls (stones are picked below them while they are open). */
+const NEAR_WORDS = { y: 0.2, z: 0.02, tilt: -0.75, spread: 0.86 } as const;
+/** Modal menus (Places, Move desk) come closer still: nothing else is touched while they are open. */
+const NEAR_MENU = { y: 0.25, z: 0.06, tilt: -0.7, spread: 0.8 } as const;
+type NearPane = typeof NEAR_WORDS | typeof NEAR_MENU;
+
+/** A point at (dx, dy) on the plane blended between the caption plane (k = 0) and a near plane (k = 1). */
+function onNearPane(layout: DeskLayout, dx: number, dy: number, k: number, out: Vector3, near: NearPane = NEAR_MENU): number {
+  const tilt = PANE.tilt + (near.tilt - PANE.tilt) * k;
+  const y = PANE.y + (near.y - PANE.y) * k;
+  const z = PANE.z(layout) + (near.z - PANE.z(layout)) * k;
+  const x = dx * (1 + (near.spread - 1) * k);
+  out.set(x, y + dy * Math.cos(tilt), z + dy * Math.sin(tilt));
+  return tilt;
+}
+
 export class DeskVisuals {
   readonly root = new Group();
   readonly rootEntity: Entity;
@@ -105,7 +128,7 @@ export class DeskVisuals {
   private readonly voiceUniforms: CardUniforms;
   /** Loudness of the lamp's voice right now (0..1), −1 when it is not speaking: drives the glow. */
   voiceLevel = -1;
-  readonly placeChips: Array<{ id: PlaceId; mesh: Mesh; entity: Entity; uniforms: CardUniforms }> = [];
+  readonly placeChips: Array<{ id: PlaceId; mesh: Mesh; entity: Entity; uniforms: CardUniforms; hover: Spring }> = [];
   /** v8: "Table stays | Full" switch, shown in a place (under the caption, or under the open Places grid). */
   readonly immersionToggle: Mesh;
   readonly immersionEntity: Entity;
@@ -124,7 +147,7 @@ export class DeskVisuals {
   readonly ritualsOrnament: Mesh;
   readonly ritualsEntity: Entity;
   private readonly ritualsUniforms: CardUniforms;
-  readonly ritualChips: Array<{ id: RitualKind | 'sleep'; mesh: Mesh; entity: Entity; uniforms: CardUniforms }> = [];
+  readonly ritualChips: Array<{ id: RitualKind | 'sleep'; mesh: Mesh; entity: Entity; uniforms: CardUniforms; hover: Spring }> = [];
   private readonly ritualSpring = new Spring(0);
   private ritualsOpen = false;
   private ritualsLabel = '';
@@ -172,10 +195,27 @@ export class DeskVisuals {
   // Animated targets.
   private reveal = 0;
   private revealTarget = 0;
+  /** 0..1: the interface (caption, menus, replies, glass row) fades in only once the tray is revealed. */
+  private uiK = 1;
+  readonly relay: Mesh;
+  private readonly relayUniforms: CardUniforms;
+  private relayK = 0;
+  private relayPlaced = false;
+  private captionAt = -1e9;
+  private readonly relayPos = new Vector3();
+  /** Gaze-only selection: the dwell ring (world space, faces you). */
+  readonly dwellRing: Mesh;
+  private readonly dwellUniforms: { uProgress: { value: number }; uAlpha: { value: number } };
+  private readonly relayTmp = new Vector3();
+  private readonly relayTo = new Vector3();
+  /** 0..1: touch menus on the caption plane (0) or come to you on the near plane (1). */
+  private nearK = 0;
+  private poolK = 0;
   private dim = 0;
   private dimTarget = 0;
   private readonly binGlowTarget = [0, 0, 0];
   private readonly suggestTarget = [0, 0, 0];
+  private readonly gazeBinTarget = [0, 0, 0];
   private emberTarget = 0;
   private captionTarget = 0;
   private cardTarget = 0;
@@ -187,7 +227,7 @@ export class DeskVisuals {
   private planLabelsDirty = false;
   private readonly replySpring = new Spring(0);
   /** Touch words grid (quiet evening). */
-  readonly wordChips: Array<{ mesh: Mesh; entity: Entity; uniforms: CardUniforms; label: string | null }> = [];
+  readonly wordChips: Array<{ mesh: Mesh; entity: Entity; uniforms: CardUniforms; label: string | null; hover: Spring }> = [];
   private wordKey = '';
   private wordsOpen = false;
   private readonly wordSpring = new Spring(0);
@@ -273,6 +313,23 @@ export class DeskVisuals {
     this.caption.renderOrder = 6;
     this.caption.raycast = () => {};
     this.root.add(this.caption);
+    // 23 Oct — FoV-aware: a relay of the caption that lazily follows your view when you have turned away from the
+    // desk and the lamp just said something (same texture; one draw call only while it shows).
+    const relayMaterial = createCardMaterial(this.captionCanvas.texture);
+    this.relayUniforms = relayMaterial.uniforms;
+    this.relay = new Mesh(this.caption.geometry, relayMaterial);
+    this.relay.scale.setScalar(0.78);
+    this.relay.renderOrder = 9;
+    this.relay.visible = false;
+    this.relay.raycast = () => {};
+    world.scene.add(this.relay);
+    const dwellMaterial = createDwellRingMaterial();
+    this.dwellUniforms = dwellMaterial.uniforms;
+    this.dwellRing = new Mesh(createQuad(0.056, 0.056), dwellMaterial);
+    this.dwellRing.renderOrder = 12;
+    this.dwellRing.visible = false;
+    this.dwellRing.raycast = () => {};
+    world.scene.add(this.dwellRing);
 
     // Plan / morning card.
     const cardMaterial = createCardMaterial(this.cardCanvas.texture);
@@ -318,8 +375,9 @@ export class DeskVisuals {
       mesh.visible = false;
       this.root.add(mesh);
       const entity = world.createTransformEntity(mesh, this.rootEntity);
-      this.wordChips.push({ mesh, entity, uniforms: material.uniforms, label: null });
-      this.hover[`word:${i}`] = new Spring(0);
+      const hover = new Spring(0);
+      this.wordChips.push({ mesh, entity, uniforms: material.uniforms, label: null, hover });
+      this.hover[`word:${i}`] = hover;
     }
 
     // World-space light field (warm dust + night sky).
@@ -369,8 +427,9 @@ export class DeskVisuals {
       mesh.visible = false;
       this.root.add(mesh);
       const entity = world.createTransformEntity(mesh, this.rootEntity);
-      this.placeChips.push({ id, mesh, entity, uniforms: material.uniforms });
-      this.hover[`place:${id}`] = new Spring(0);
+      const hover = new Spring(0);
+      this.placeChips.push({ id, mesh, entity, uniforms: material.uniforms, hover });
+      this.hover[`place:${id}`] = hover;
     });
     // v8: immersion switch (one mesh, a touch flips it).
     const toggleMaterial = createCardMaterial(drawImmersionToggle(false));
@@ -404,8 +463,9 @@ export class DeskVisuals {
       mesh.visible = false;
       this.root.add(mesh);
       const entity = world.createTransformEntity(mesh, this.rootEntity);
-      this.ritualChips.push({ id: row.id, mesh, entity, uniforms: material.uniforms });
-      this.hover[`ritual:${row.id}`] = new Spring(0);
+      const hover = new Spring(0);
+      this.ritualChips.push({ id: row.id, mesh, entity, uniforms: material.uniforms, hover });
+      this.hover[`ritual:${row.id}`] = hover;
     });
   }
 
@@ -596,6 +656,8 @@ export class DeskVisuals {
     if (target > 0 && this.revealTarget === 0) {
       // The lamp wakes first: a filament warms up, flickers once, then the desk appears in its light.
       this.wakeT = 0;
+      // The interface waits for the tray (23 Oct): hidden at once, it fades in once the light has found the tray.
+      this.uiK = 0;
     } else if (target === 0) {
       this.wake = 0;
       this.wakeT = -1;
@@ -625,6 +687,44 @@ export class DeskVisuals {
     for (let i = 0; i < 3; i++) {
       this.binGlowTarget[i] = i === index ? value : 0;
     }
+  }
+
+  /** 23 Oct: the bowl you look at while a stone is in hand or chosen ("drop here"), eased like the suggestion. */
+  setGazeBin(index: number): void {
+    for (let i = 0; i < 3; i++) this.gazeBinTarget[i] = i === index ? 1 : 0;
+  }
+
+  /**
+   * FoV-aware caption relay (call every frame with the head position and view direction, world space): when the
+   * desk caption is outside your view (> 42° from where you look; Quest 3S ≈ 96° wide) and the lamp spoke in the
+   * last 7 s, a smaller copy floats in front of you, following lazily (≈ 0.4 s lag), and fades when you look back.
+   */
+  updateRelay(head: Vector3, dir: Vector3, dt: number): void {
+    this.caption.getWorldPosition(this.relayTmp);
+    const tx = this.relayTmp.x - head.x;
+    const ty = this.relayTmp.y - head.y;
+    const tz = this.relayTmp.z - head.z;
+    const len = Math.hypot(tx, ty, tz) * (Math.hypot(dir.x, dir.y, dir.z) || 1);
+    const angle = len < 1e-6 ? 0 : (Math.acos(Math.max(-1, Math.min(1, (tx * dir.x + ty * dir.y + tz * dir.z) / len))) * 180) / Math.PI;
+    const capOpacity = this.captionUniforms.uOpacity.value;
+    const want = this.root.visible && angle > 42 && this.lifeT - this.captionAt < 7 && capOpacity > 0.3 ? 1 : 0;
+    this.relayK = approach(this.relayK, want, 3, dt);
+    this.relay.visible = this.relayK > 0.02;
+    if (!this.relay.visible) {
+      this.relayPlaced = false;
+      return;
+    }
+    const fl = Math.hypot(dir.x, dir.z) || 1;
+    this.relayTo.set(head.x + (dir.x / fl) * 0.85, head.y - 0.1, head.z + (dir.z / fl) * 0.85);
+    if (!this.relayPlaced) {
+      this.relayPos.copy(this.relayTo);
+      this.relayPlaced = true;
+    } else {
+      this.relayPos.lerp(this.relayTo, 1 - Math.exp(-2.5 * dt));
+    }
+    this.relay.position.copy(this.relayPos);
+    this.relay.lookAt(head);
+    this.relayUniforms.uOpacity.value = this.relayK * Math.min(1, capOpacity);
   }
 
   /** The agent's suggestion for the stone in hand: a faint breathing light in that bowl. */
@@ -756,6 +856,42 @@ export class DeskVisuals {
     uniforms.uMap.value = drawButton(primaryLabel, DS.accent.lamp, true);
   }
 
+  /** 23 Oct — accessibility: caption scale (large text) and touch-chip scale. */
+  private textK = 1;
+  private chipK = 1;
+
+  /**
+   * Accessibility settings (logic/access.ts): high contrast switches every glass pane at once (one shared uniform);
+   * large text makes the caption (and its relay) 30 % larger and the reply / word chips 10 % larger, spread apart
+   * by as much so they never touch.
+   */
+  setAccess(contrast: boolean, largeText: boolean): void {
+    CARD_CONTRAST.value = contrast ? 1 : 0;
+    this.textK = largeText ? 1.3 : 1;
+    this.chipK = largeText ? 1.1 : 1;
+    this.caption.scale.setScalar(this.textK);
+    this.relay.scale.setScalar(0.78 * this.textK);
+  }
+
+  /**
+   * Gaze-only selection: the ring around what you look at fills (progress 0..1), placed 3 cm in front of the
+   * target toward your eyes; alpha 0 hides it. No allocation.
+   */
+  showDwell(x: number, y: number, z: number, head: Vector3, progress: number, alpha: number): void {
+    const ring = this.dwellRing;
+    ring.visible = alpha > 0.01;
+    if (!ring.visible) return;
+    this.relayTmp.set(head.x - x, head.y - y, head.z - z);
+    const d = this.relayTmp.length();
+    if (d > 1e-4) this.relayTmp.multiplyScalar(Math.min(0.03, d * 0.5) / d);
+    ring.position.set(x + this.relayTmp.x, y + this.relayTmp.y, z + this.relayTmp.z);
+    ring.lookAt(head);
+    // Same angular size at any distance (≈ 3.2°).
+    ring.scale.setScalar(Math.max(0.6, d / 0.55));
+    this.dwellUniforms.uProgress.value = progress;
+    this.dwellUniforms.uAlpha.value = alpha;
+  }
+
   /** Hover from a hand ray or a finger approaching (InputSystem `Hovered`). */
   setHover(action: string, on: boolean): void {
     const spring = this.hover[action as keyof typeof this.hover];
@@ -810,14 +946,20 @@ export class DeskVisuals {
     }
     this.orbUniforms.uWake.value = (this.revealTarget > 0 ? this.wake : 1) * (1 - this.lampOut);
     const revealGate = this.wakeT >= 0 && this.wakeT < 0.55 ? 0 : this.revealTarget;
-    this.reveal = approach(this.reveal, revealGate, 2.0, dt);
+    // 23 Oct (first five seconds): a slower, silkier light front (≈ 2.3 s to 95 %) — the lamp wakes, then its light
+    // finds the tray on your real table; the interface waits until the tray is fully there, then fades in.
+    this.reveal = approach(this.reveal, revealGate, 1.3, dt);
     m.uReveal.value = this.reveal;
+    this.uiK = approach(this.uiK, this.revealTarget > 0 && this.reveal > 0.97 ? 1 : this.revealTarget > 0 ? 0 : 1, 2.4, dt);
     this.trayUniforms.uContact.value = this.groundedFlag ? Math.min(1, this.reveal * 1.4) : 0;
+    // The lamp's warm light spills onto the real table around it (passthrough only: in Full there is no table).
+    this.poolK = approach(this.poolK, this.groundedFlag && this.backdrop.immersionLevel !== 'full' ? 1 : 0, 2, dt);
+    this.trayUniforms.uPool.value = this.poolK * this.reveal * Math.min(1, this.wake + (this.wakeT < 0 ? 1 : 0)) * (1 - this.lampOut);
     this.dim = approach(this.dim, this.dimTarget, 0.7, dt);
     rig.uDim.value = this.dim;
     for (let i = 0; i < 3; i++) {
       m.uBinGlow.value[i] = approach(m.uBinGlow.value[i], this.binGlowTarget[i], 9, dt);
-      m.uSuggest.value[i] = approach(m.uSuggest.value[i], this.suggestTarget[i], 4, dt);
+      m.uSuggest.value[i] = approach(m.uSuggest.value[i], Math.max(this.suggestTarget[i], this.gazeBinTarget[i]), 3.2, dt);
       m.uBinPulse.value[i] = Math.max(0, m.uBinPulse.value[i] - dt * 1.2);
     }
     m.uEmber.value = approach(m.uEmber.value, this.emberTarget, this.emberTarget > m.uEmber.value ? 6 : 1.5, dt);
@@ -828,10 +970,11 @@ export class DeskVisuals {
       if (cap.value <= 0.01) {
         this.captionCanvas.draw(this.pendingCaption.text, this.pendingCaption.sub);
         this.pendingCaption = null;
+        this.captionAt = this.lifeT;
         this.captionTarget = 1;
       }
     } else {
-      cap.value = approach(cap.value, this.captionTarget * (1 - this.dim * 0.25), 6, dt);
+      cap.value = approach(cap.value, this.captionTarget * (1 - this.dim * 0.25) * this.uiK, 6, dt);
     }
     // While the plan card is up, it carries the title: the caption steps aside (fades, rises a little).
     const lift = this.captionLift.step(dt, 120, 20);
@@ -847,19 +990,26 @@ export class DeskVisuals {
     const tk = Math.max(0, Math.min(1, this.toggleSpring.step(dt, 150, 24)));
     // v8: in Breathe the moon grows: the caption rises with it, so the moon never covers its lower line.
     const moonLift = Math.max(0, this.orbPose.scale - 1.5) * 0.014;
-    this.wordSpring.target = this.wordsOpen ? 1 : 0;
+    this.wordSpring.target = this.wordsOpen && !this.ritualsOpen ? 1 : 0;
     const wk = Math.max(0, Math.min(1, this.wordSpring.step(dt, 160, 24)));
-    this.captionDy = lift * 0.05 + tk * 0.03 + moonLift + wk * WORDS.lift;
+    // Touch menus come to you (airplane-seat test): a slow, calm glide (≈ 0.5 s).
+    this.nearK = approach(this.nearK, this.menuOpen || this.wordsOpen || this.ritualsOpen ? 1 : 0, 5, dt);
+    const nk = this.nearK * this.nearK * (3 - 2 * this.nearK);
+    this.captionDy = lift * 0.05 + tk * 0.03 + moonLift + wk * WORDS.lift * (1 - nk);
     onPane(this.layout, aside * CAPTION_ASIDE, this.captionDy, this.caption.position);
     this.wordChips.forEach((chip, i) => {
-      const hover = this.hover[`word:${i}`].step(dt);
-      chip.uniforms.uOpacity.value = Math.min(1, Math.max(0, wk * 1.3 - (i % 4) * 0.06)) * (1 - this.dim * 0.3);
+      chip.mesh.rotation.x = onNearPane(this.layout, WORDS.x[i % 4] * this.chipK, WORDS.dy[Math.floor(i / 4)] * this.chipK, nk, chip.mesh.position, NEAR_WORDS);
+      const hover = chip.hover.step(dt);
+      chip.uniforms.uOpacity.value = Math.min(1, Math.max(0, wk * 1.3 - (i % 4) * 0.06)) * (1 - this.dim * 0.3) * this.uiK;
       chip.uniforms.uHighlight.value = hover;
-      chip.mesh.scale.setScalar((0.94 + 0.06 * wk) * (1 + 0.05 * hover));
+      // Closer menus are spread tighter: the chips shrink by as much, so they never overlap (same angle to the eye).
+      chip.mesh.scale.setScalar((0.94 + 0.06 * wk) * (1 + 0.05 * hover) * this.chipK * (1 + (NEAR_WORDS.spread - 1) * nk));
+      // A word that stepped aside (ritual menu open) cannot be touched either.
+      chip.mesh.visible = chip.label != null && wk > 0.02;
     });
     // The switch: under the caption, or under the Places grid when it is open.
     const toggleDy = menuK > 0.5 ? GRID.dy[GRID.dy.length - 1] - 0.066 : -0.128 + tk * 0.03 + lift * 0.05;
-    onPane(this.layout, menuK > 0.5 ? 0 : aside * CAPTION_ASIDE, toggleDy, this.paneTmp);
+    this.immersionToggle.rotation.x = onNearPane(this.layout, menuK > 0.5 ? 0 : aside * CAPTION_ASIDE, toggleDy, menuK > 0.5 ? nk : 0, this.paneTmp);
     this.immersionToggle.position.copy(this.paneTmp);
     const toggleHover = this.hover.immersion.step(dt);
     // While the lamp waits for an answer (Yes / Not now, Longer / Enough, the words to touch), the switch fades out:
@@ -882,23 +1032,25 @@ export class DeskVisuals {
     this.menuSpring.target = this.menuOpen ? 1 : 0;
     const menu = Math.max(0, this.menuSpring.step(dt, 200, 24));
     this.placeChips.forEach((chip, i) => {
+      chip.mesh.rotation.x = onNearPane(this.layout, GRID.x[i % GRID.x.length], GRID.dy[Math.floor(i / GRID.x.length) % GRID.dy.length], nk, chip.mesh.position);
       const k = Math.min(1, Math.max(0, menu * 1.25 - i * 0.08));
-      const hover = this.hover[`place:${chip.id}`].step(dt);
+      const hover = chip.hover.step(dt);
       chip.uniforms.uOpacity.value = k;
       chip.uniforms.uHighlight.value = hover;
-      chip.mesh.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover));
+      chip.mesh.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover) * (1 + (NEAR_MENU.spread - 1) * nk));
       if (!this.menuOpen && menu < 0.02) chip.mesh.visible = false;
     });
     {
       const k = Math.min(1, Math.max(0, menu * 1.25 - this.placeChips.length * 0.08));
+      this.moveChip.rotation.x = onNearPane(this.layout, MOVE_CHIP.x, GRID.dy[GRID.dy.length - 1] - 0.066, nk, this.moveChip.position);
       const hover = this.hover['move-desk'].step(dt);
       this.moveUniforms.uOpacity.value = k * (1 - this.dim * 0.4);
       this.moveUniforms.uHighlight.value = hover;
-      this.moveChip.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover));
+      this.moveChip.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover) * (1 + (NEAR_MENU.spread - 1) * nk));
       if (!this.menuOpen && menu < 0.02) this.moveChip.visible = false;
     }
     const placesHover = this.hover.places.step(dt);
-    const ornamentOpacity = Math.min(1, this.reveal * 1.2) * (1 - this.dim * 0.5);
+    const ornamentOpacity = Math.min(1, this.reveal * 1.2) * this.uiK * (1 - this.dim * 0.5);
     // v7: while the Places menu is open its own button steps away (the rows close the menu; no duplicate control).
     this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6);
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.
@@ -921,24 +1073,27 @@ export class DeskVisuals {
       this.keepChip.visible = rk > 0.01;
       this.lighterChip.visible = rk > 0.01 && two;
     }
-    this.chipUniforms[0].uOpacity.value = Math.min(1, Math.max(k, rk));
-    this.chipUniforms[1].uOpacity.value = Math.min(1, Math.max(k, rk));
+    this.chipUniforms[0].uOpacity.value = Math.min(1, Math.max(k, rk)) * this.uiK;
+    this.chipUniforms[1].uOpacity.value = Math.min(1, Math.max(k, rk)) * this.uiK;
     this.chipUniforms[0].uHighlight.value = keepHover;
     this.chipUniforms[1].uHighlight.value = lighterHover;
     // Replies (Yes / Not now, Longer / Enough) are narrower capsules (10.5 cm, same 4.9 cm height for the finger);
     // the plan card's chips keep their full width. The x scale matches the canvas.
     const narrow = this.cardTarget === 0 && this.replyLabels != null ? REPLY_NARROW : 1;
-    this.keepChip.scale.set(narrow * (1 + 0.05 * keepHover), 1 + 0.05 * keepHover, 1);
-    this.lighterChip.scale.set(narrow * (1 + 0.05 * lighterHover), 1 + 0.05 * lighterHover, 1);
+    const ck = this.chipK;
+    this.keepChip.scale.set(narrow * (1 + 0.05 * keepHover) * ck, (1 + 0.05 * keepHover) * ck, 1);
+    this.lighterChip.scale.set(narrow * (1 + 0.05 * lighterHover) * ck, (1 + 0.05 * lighterHover) * ck, 1);
     if (this.cardTarget === 0 && this.replyLabels != null && this.repliesBeside) {
       // Under the caption, side by side, equal size (the moon rises in front, below them).
-      onPane(this.layout, -0.085, this.captionDy - 0.1, this.keepChip.position);
-      onPane(this.layout, 0.085, this.captionDy - 0.1, this.lighterChip.position);
+      // Larger text: the caption grows around its centre, the replies step down and apart by as much.
+      const replyDy = this.captionDy - 0.1 - (this.textK - 1) * 0.09;
+      onPane(this.layout, -0.085 * ck, replyDy, this.keepChip.position);
+      onPane(this.layout, 0.085 * ck, replyDy, this.lighterChip.position);
       this.keepChip.rotation.x = PANE.tilt;
       this.lighterChip.rotation.x = PANE.tilt;
     } else {
-      this.keepChip.position.set(-0.085, 0.088 + 0.006 * keepHover, -this.layout.depth / 2 + 0.03);
-      this.lighterChip.position.set(0.085, 0.088 + 0.006 * lighterHover, -this.layout.depth / 2 + 0.03);
+      this.keepChip.position.set(-0.085 * ck, 0.088 + 0.006 * keepHover, -this.layout.depth / 2 + 0.03);
+      this.lighterChip.position.set(0.085 * ck, 0.088 + 0.006 * lighterHover, -this.layout.depth / 2 + 0.03);
       this.keepChip.rotation.x = -0.7;
       this.lighterChip.rotation.x = -0.7;
     }
@@ -996,20 +1151,28 @@ export class DeskVisuals {
       this.lights.drift(this.worldTmp.x, this.worldTmp.y + 0.01, this.worldTmp.z, 1, 0.025, 0.06, 0.006, 5.5);
     }
     // Ritual menu rows rise in like the Places rows.
-    this.ritualSpring.target = this.ritualsOpen ? 1 : 0;
+    this.ritualSpring.target = this.ritualsOpen && this.uiK > 0.6 ? 1 : 0;
     const rm = Math.max(0, this.ritualSpring.step(dt, 200, 24));
     // The rows stand upright and turn to face you (yaw only): never sheared like italics, wherever you sit.
     if (rm > 0.001) {
       this.root.updateMatrixWorld();
       this.root.worldToLocal(this.camera.getWorldPosition(this.headLocal));
     }
+    const rowK = this.nearK * this.nearK * (3 - 2 * this.nearK);
     this.ritualChips.forEach((chip, i) => {
       if (rm > 0.001) {
+        // Airplane-seat test: the rows glide from beside the lamp (≈ 77 cm from the shoulder) to in front of the
+        // Let go bowl, lower (≈ 60 cm).
+        chip.mesh.position.set(
+          this.layout.orb.x - 0.03 + (0.2 - (this.layout.orb.x - 0.03)) * rowK,
+          0.375 - i * 0.066 + (0.34 - i * 0.058 - (0.375 - i * 0.066)) * rowK,
+          this.layout.orb.z - 0.09 + (0.06 - (this.layout.orb.z - 0.09)) * rowK,
+        );
         const p = chip.mesh.position;
         chip.mesh.rotation.set(-0.08, Math.atan2(this.headLocal.x - p.x, this.headLocal.z - p.z), 0, 'YXZ');
       }
       const kk = Math.min(1, Math.max(0, rm * 1.25 - i * 0.08));
-      const hover = this.hover[`ritual:${chip.id}`].step(dt);
+      const hover = chip.hover.step(dt);
       chip.uniforms.uOpacity.value = kk;
       chip.uniforms.uHighlight.value = hover;
       chip.mesh.scale.setScalar((0.9 + 0.1 * kk) * (1 + 0.04 * hover));

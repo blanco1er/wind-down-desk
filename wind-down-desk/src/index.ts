@@ -10,6 +10,7 @@
 import { World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { loadFonts } from './desk/fonts.ts';
+import { mountAccessPanel } from './landing/access-panel.ts';
 import { probeXr } from './landing/xr-detect.ts';
 import { planLanding } from './logic/xr-support.ts';
 import { mountOverlay } from './overlay.ts';
@@ -21,6 +22,8 @@ import { trackPage, track } from './visits.ts';
 trackPage();
 addEventListener('error', () => track('client-error', { where: 'window' }, 'client-error'));
 addEventListener('unhandledrejection', () => track('client-error', { where: 'promise' }, 'client-rejection'));
+// Accessibility settings: reachable from the first second, before the scene is drawn (and by voice in the headset).
+mountAccessPanel();
 
 // The engraved stones and bowls are drawn with the shipped typeface: load it first (≤ 2.5 s). Meanwhile, ask the
 // browser which immersive sessions it can open (22 Oct: a phone or a laptop never gets a dead "Begin" button).

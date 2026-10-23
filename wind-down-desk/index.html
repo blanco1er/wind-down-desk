@@ -82,7 +82,7 @@
         flex-direction: column;
         align-items: center;
         gap: 12px;
-        padding: 0 max(16px, env(safe-area-inset-left)) calc(max(28px, 5vh) + env(safe-area-inset-bottom));
+        padding: 0 max(16px, env(safe-area-inset-left)) calc(max(48px, 6vh) + env(safe-area-inset-bottom));
         transition: opacity 500ms cubic-bezier(0.2, 0.8, 0.2, 1);
         z-index: 10;
         pointer-events: none;
@@ -138,17 +138,177 @@
       .qc-address-hint:empty {
         display: none !important;
       }
-      .privacy {
+      /* 23 Oct: Accessibility · Privacy · Not therapy or medical advice — small, always reachable. */
+      .legal {
         position: fixed;
         left: 16px;
         right: 16px;
-        bottom: calc(8px + env(safe-area-inset-bottom));
+        bottom: calc(4px + env(safe-area-inset-bottom));
         margin: 0;
-        text-align: center;
-        font-size: 11px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        column-gap: 4px;
+        font-size: 12px;
         letter-spacing: 0.01em;
-        color: rgba(240, 228, 212, 0.42);
+        color: rgba(240, 228, 212, 0.5);
         pointer-events: none;
+      }
+      .legal a,
+      .legal button {
+        pointer-events: auto;
+        display: inline-flex;
+        align-items: center;
+        min-height: 36px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: 10px;
+        background: none;
+        color: rgba(246, 236, 222, 0.78);
+        font: 600 12px var(--font);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .legal a:hover,
+      .legal button:hover {
+        color: var(--primary);
+      }
+      .legal a:focus-visible,
+      .legal button:focus-visible {
+        outline: 3px solid rgba(255, 255, 255, 0.7);
+        outline-offset: 0;
+      }
+      .legal .dot {
+        opacity: 0.6;
+      }
+      #landing.hidden .legal {
+        visibility: hidden;
+      }
+      /* Accessibility settings: a native dialog (focus trapped, Escape closes), three switches. */
+      #access {
+        box-sizing: border-box;
+        max-width: none;
+        width: min(440px, calc(100vw - 32px));
+        padding: 22px 22px 18px;
+        border: 0;
+        border-radius: 26px;
+        color: var(--primary);
+        background: linear-gradient(180deg, rgba(58, 55, 52, 0.96), rgba(30, 28, 26, 0.98));
+        box-shadow: inset 0 1px 0 var(--edge), 0 24px 60px rgba(0, 0, 0, 0.55);
+        font-family: var(--font);
+      }
+      #access::backdrop {
+        background: rgba(8, 6, 5, 0.6);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+      }
+      #access h2 {
+        margin: 0;
+        font-size: 19px;
+        font-weight: 650;
+      }
+      #access .access-lede {
+        margin: 4px 0 14px;
+        font-size: 13.5px;
+        color: var(--secondary);
+      }
+      .sw {
+        display: flex;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 12px 0;
+        border-top: 1px solid rgba(255, 250, 240, 0.1);
+        cursor: pointer;
+      }
+      .sw b {
+        display: block;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .sw small {
+        display: block;
+        margin-top: 2px;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--secondary);
+      }
+      .sw input {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: none;
+        position: relative;
+        width: 50px;
+        height: 30px;
+        margin: 2px 0 0;
+        border-radius: 15px;
+        background: rgba(120, 120, 128, 0.42);
+        transition: background 180ms ease;
+        cursor: pointer;
+      }
+      .sw input::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+        transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .sw input:checked {
+        background: var(--amber);
+      }
+      .sw input:checked::after {
+        transform: translateX(20px);
+      }
+      .sw input:focus-visible {
+        outline: 3px solid rgba(255, 255, 255, 0.8);
+        outline-offset: 2px;
+      }
+      #access .access-done {
+        display: block;
+        width: 100%;
+        min-height: 46px;
+        margin-top: 8px;
+        border: 0;
+        border-radius: 23px;
+        background: var(--amber);
+        color: #1c1612;
+        font: 600 15px var(--font);
+        cursor: pointer;
+      }
+      #access .access-done:focus-visible {
+        outline: 3px solid rgba(255, 255, 255, 0.8);
+        outline-offset: 2px;
+      }
+      /* The settings apply to this page too. */
+      body.a11y-contrast {
+        --glass-top: rgba(10, 9, 8, 0.96);
+        --glass-bottom: rgba(4, 4, 4, 0.98);
+        --edge: rgba(255, 255, 255, 0.7);
+        --secondary: rgba(255, 255, 255, 0.92);
+        --tertiary: rgba(255, 255, 255, 0.82);
+      }
+      body.a11y-contrast .legal,
+      body.a11y-contrast .legal a,
+      body.a11y-contrast .legal button {
+        color: #fff;
+      }
+      body.a11y-large #landing {
+        zoom: 1.15;
+      }
+      /* The dialog keeps its width (it must fit a 390 px phone); its text grows instead. */
+      body.a11y-large #access h2 { font-size: 22px; }
+      body.a11y-large #access .access-lede,
+      body.a11y-large .sw small { font-size: 15px; }
+      body.a11y-large .sw b { font-size: 17px; }
+      /* On a phone the line wraps after Privacy: no dot left alone at the end of a line. */
+      @media (max-width: 620px) {
+        .legal .dot-last { display: none; }
+        .legal .medical { flex-basis: 100%; text-align: center; }
       }
       .sub:empty {
         display: none;
@@ -499,9 +659,9 @@
           padding: 22px 20px 20px;
           border-radius: 26px;
         }
-        /* Room under the card for the two-line privacy note. */
+        /* Room under the card for the Accessibility · Privacy line. */
         #landing {
-          padding-bottom: calc(46px + env(safe-area-inset-bottom));
+          padding-bottom: calc(48px + env(safe-area-inset-bottom));
         }
         /* A phone cannot scan its own screen. */
         .qc-qr {
@@ -564,8 +724,22 @@
         <button id="begin" type="button" aria-describedby="status">Begin</button>
         <p class="visually-hidden" id="status" aria-live="polite">Checking the agent…</p>
       </main>
-      <p class="privacy">Anonymous steps are counted to improve this demo. Never your words, never your voice.</p>
+      <p class="legal" translate="no">
+        <button type="button" id="access-open" aria-haspopup="dialog">Accessibility</button><span class="dot" aria-hidden="true">·</span>
+        <a href="/privacy.html">Privacy</a><span class="dot dot-last" aria-hidden="true">·</span>
+        <span class="medical">Not therapy or medical advice</span>
+      </p>
     </div>
+    <dialog id="access" aria-labelledby="access-title" translate="no">
+      <form method="dialog">
+        <h2 id="access-title">Accessibility</h2>
+        <p class="access-lede">Kept on this device. In the headset, you can also just say them.</p>
+        <label class="sw"><input type="checkbox" role="switch" data-access="gazeSelect" /><span><b>Select by looking</b><small>Look at something for a moment to choose it. No hands, no voice. Say “look to select”.</small></span></label>
+        <label class="sw"><input type="checkbox" role="switch" data-access="contrast" /><span><b>High contrast</b><small>White text on solid dark panels. Say “high contrast”.</small></span></label>
+        <label class="sw"><input type="checkbox" role="switch" data-access="largeText" /><span><b>Larger text</b><small>Captions 30 % larger, buttons too. Say “bigger text”.</small></span></label>
+        <button class="access-done" value="done">Done</button>
+      </form>
+    </dialog>
     <script>
       // Safety net: the scene and the bar always appear, even if the app never signals it is drawn.
       setTimeout(function () {

@@ -204,6 +204,8 @@ export interface TrayUniforms {
   uBlackBowl: { value: Vector4 };
   /** 22 Oct: opacity of the merged contact shadow (0 when the desk floats). */
   uContact: { value: number };
+  /** 23 Oct: the lamp's warm light spilled on the real table around it (0..1). */
+  uPool: { value: number };
   /** v6 Breathe: the pearl row (centre x, z, spacing, count) and how lit each pearl is → light on the walnut. */
   uPearlRow: { value: Vector4 };
   uPearlLit: { value: number[] };
@@ -255,6 +257,7 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
       uFootMove: { value: new Vector3(0, 0, 1) },
       uBlackBowl: { value: new Vector4(0, 0, 0.13, 0) },
       uContact: { value: 0 },
+      uPool: { value: 0 },
       uPearlRow: { value: new Vector4(0, 0.13, 0.026, 0) },
       uPearlLit: { value: new Array(12).fill(0) },
     },
@@ -334,6 +337,7 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
       varying vec3 vWorldNormal;
       varying vec3 vLocalNormal;
       uniform float uContact;
+      uniform float uPool;
       varying float vKind;
       varying float vSink;
       ${NOISE}
@@ -350,8 +354,13 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
           if (uContact < 0.002) discard;
           float sd = sdRoundRect(vLocal.xz + vec2(0.012, 0.016), uSize * 0.5 - 0.01, 0.07);
           float sa = ((1.0 - smoothstep(-0.02, 0.05, sd)) * 0.42 + (1.0 - smoothstep(-0.004, 0.006, sd)) * 0.3) * uContact;
-          if (sa < 0.004) discard;
-          gl_FragColor = vec4(0.02, 0.012, 0.008, sa);
+          // 23 Oct: the lamp's light on the real table (a warm veil over passthrough, breathing with the lamp).
+          vec2 dl = (vLocal.xz - uOrbLocal) * vec2(1.0, 1.3);
+          float pool = exp(-dot(dl, dl) / 0.05) * 0.2 * uPool * (0.75 + 0.25 * uLampGlow) * smoothstep(-0.01, 0.03, sd);
+          float a = sa + pool * (1.0 - sa);
+          if (a < 0.004) discard;
+          vec3 c = (vec3(0.02, 0.012, 0.008) * sa + vec3(1.0, 0.72, 0.44) * pool * (1.0 - sa)) / a;
+          gl_FragColor = vec4(c, a);
           return;
         }
         vec2 p = vLocal.xz;
@@ -988,14 +997,21 @@ export interface CardUniforms {
   uMap: { value: Texture };
   uOpacity: { value: number };
   uHighlight: { value: number };
+  uContrast: { value: number };
 }
+
+/**
+ * 23 Oct — accessibility, high contrast: ONE uniform shared by every glass pane (captions, chips, menus, cards),
+ * so the setting switches the whole interface at once with no material rebuilt. 0 = frosted glass, 1 = high contrast.
+ */
+export const CARD_CONTRAST = { value: 0 };
 
 export function createCardMaterial(map: Texture): ShaderMaterial & { uniforms: CardUniforms } {
   const material = new ShaderMaterial({
     transparent: true,
     depthWrite: false,
     side: DoubleSide,
-    uniforms: { uMap: { value: map }, uOpacity: { value: 0 }, uHighlight: { value: 0 } },
+    uniforms: { uMap: { value: map }, uOpacity: { value: 0 }, uHighlight: { value: 0 }, uContrast: CARD_CONTRAST },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       varying vec3 vView;
@@ -1012,6 +1028,7 @@ export function createCardMaterial(map: Texture): ShaderMaterial & { uniforms: C
       uniform sampler2D uMap;
       uniform float uOpacity;
       uniform float uHighlight;
+      uniform float uContrast;
       varying vec2 vUv;
       varying vec3 vView;
       varying vec3 vN;
@@ -1021,9 +1038,66 @@ export function createCardMaterial(map: Texture): ShaderMaterial & { uniforms: C
         float sheen = pow(max(dot(normalize(vView + vec3(0.0, 0.35, 0.0)), vN), 0.0), 18.0) * 0.06;
         // Hover: a gentle lift of light across the surface (visionOS highlight).
         float hover = uHighlight * (0.09 + 0.07 * (1.0 - abs(vUv.x - 0.5) * 2.0));
-        gl_FragColor = vec4(c.rgb + (sheen + hover) * c.a, c.a * uOpacity);
+        vec3 rgb = c.rgb + (sheen + hover) * c.a;
+        float a = c.a;
+        if (uContrast > 0.0) {
+          // High contrast: grey glass → near-black and almost opaque, light text → pure white, the warm accent
+          // (primary buttons) kept but opaque, its dark text darker. The pane's edge stays as a white outline.
+          float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+          float chroma = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+          float accentK = smoothstep(0.2, 0.3, chroma);
+          // Text is what is brighter OR more opaque than the glass (every pane shares the same ~0.6-alpha glass):
+          // secondary and tertiary labels become white too, never grey on black.
+          float overGlass = smoothstep(0.66, 0.74, c.a) * smoothstep(0.45, 0.55, lum);
+          float textK = max(smoothstep(0.66, 0.8, lum), overGlass) * (1.0 - accentK);
+          vec3 hc = mix(mix(vec3(0.03), c.rgb, accentK), vec3(1.0), textK) + hover * 0.6 * c.a;
+          float ha = mix(c.a * 0.5, max(c.a, 0.94), smoothstep(0.4, 0.5, c.a));
+          rgb = mix(rgb, hc, uContrast);
+          a = mix(a, ha, uContrast);
+        }
+        gl_FragColor = vec4(rgb, a * uOpacity);
       }
     `,
   });
   return material as ShaderMaterial & { uniforms: CardUniforms };
+}
+
+/**
+ * 23 Oct — accessibility, gaze-only selection: the dwell ring (Horizon OS-like). A thin warm ring that fills
+ * clockwise while you keep looking; at 1 it selects. One quad, one draw call, only while you dwell.
+ */
+export function createDwellRingMaterial(): ShaderMaterial & { uniforms: { uProgress: { value: number }; uAlpha: { value: number } } } {
+  const material = new ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    uniforms: { uProgress: { value: 0 }, uAlpha: { value: 0 } },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uProgress;
+      uniform float uAlpha;
+      varying vec2 vUv;
+      void main() {
+        vec2 p = vUv * 2.0 - 1.0;
+        float r = length(p);
+        float band = smoothstep(0.66, 0.72, r) * (1.0 - smoothstep(0.9, 0.96, r));
+        // Clockwise from 12 o'clock.
+        float a = atan(p.x, p.y) / 6.2831853 + 0.5;
+        a = fract(a + 0.5);
+        float filled = step(a, uProgress);
+        vec3 track = vec3(0.0);
+        vec3 fill = vec3(1.0, 0.86, 0.62);
+        float alpha = band * mix(0.45, 1.0, filled) * uAlpha;
+        if (alpha < 0.004) discard;
+        gl_FragColor = vec4(mix(track, fill, filled), alpha);
+      }
+    `,
+  });
+  return material as ReturnType<typeof createDwellRingMaterial>;
 }

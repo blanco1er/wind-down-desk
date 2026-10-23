@@ -66,6 +66,24 @@ export class SortingSession {
     return [...this.tokens.values()];
   }
 
+  /**
+   * Per-frame tallies without building arrays (23 Oct): sorted (in a bowl or let go), unsorted on the desk, and the
+   * first unsorted token (the onboarding ghost hand demonstrates on it).
+   */
+  tally(out: { sorted: number; unsorted: number; first: TokenState | null }): typeof out {
+    out.sorted = 0;
+    out.unsorted = 0;
+    out.first = null;
+    for (const t of this.tokens.values()) {
+      if (t.bin != null || t.released) out.sorted++;
+      else {
+        out.unsorted++;
+        if (out.first == null) out.first = t;
+      }
+    }
+    return out;
+  }
+
   /** Tokens still physically on the desk (not released). */
   active(): TokenState[] {
     return this.all().filter((t) => !t.released);

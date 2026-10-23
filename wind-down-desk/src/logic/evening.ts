@@ -37,6 +37,8 @@ export interface ProposalInput {
   doneTonight: RitualKind[];
   /** The ritual that just ended, if any (chaining). */
   justDone?: RitualKind | null;
+  /** 23 Oct: nobody has ever sorted a stone here (a judge's cold start): the core gesture comes first. */
+  firstEvening?: boolean;
 }
 
 const TENSE = /\b(tense|tension|stress|stressed|stressful|anxious|anxiety|overwhelm\w*|panic\w*|racing|on edge|nervous|wired|cant (sleep|relax|breathe|calm down)|tight|knot|exhausted|frazzled|shaky|restless|burn(t|ed) out|heart (is )?pounding)\b/u;
@@ -110,6 +112,9 @@ export function proposeRitual(input: ProposalInput): Proposal {
     return next == null
       ? { ritual: 'sleep', line: PROPOSAL_LINES.afterBreathe, sub: 'Say "good night", or pick a ritual by the lamp.', reason: 'all-done' }
       : { ritual: next, line: PROPOSAL_LINES.again, sub: MENU_HINT, reason: 'chain' };
+  }
+  if (input.firstEvening === true && done.length === 0) {
+    return { ritual: 'unload', line: PROPOSAL_LINES.start, sub: MENU_HINT, reason: 'start' };
   }
   if (late && !done.includes('breathe')) {
     return { ritual: 'breathe', line: PROPOSAL_LINES.late, sub: MENU_HINT, reason: 'late' };

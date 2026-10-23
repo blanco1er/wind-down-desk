@@ -26,6 +26,10 @@ export const EVENTS: Record<string, readonly string[]> = {
   page: ['ref', 'src', 'lang'],
   /** 22 Oct: what the landing offered (no-webxr, no-session, preview-asked, preview, xr-failed). */
   landing: ['kind'],
+  /** 23 Oct: a stone placed by gaze + pinch (look and pinch). */
+  'look-pinch': ['bin'],
+  /** 23 Oct: an accessibility setting changed (gaze-select, contrast, large-text) and from where (voice, button). */
+  access: ['setting', 'via'],
   'xr-enter': ['mode'],
   'xr-exit': ['secs'],
   placed: ['source', 'mode'],

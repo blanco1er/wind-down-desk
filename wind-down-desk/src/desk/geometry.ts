@@ -163,7 +163,8 @@ export function createTrayGeometry(layout: DeskLayout): BufferGeometry {
   profile.push(new Vector2(0.0001, TRAY.bowlFloor));
   // 22 Oct: the soft contact shadow on the real table is part of the tray (aKind 5), first in the buffer so the
   // board draws over it: one draw call less per eye. A ground quad 8 cm larger than the tray, 0.8 mm above the table.
-  const contact = createGroundQuad(layout.width + 0.16, layout.depth + 0.16);
+  // 23 Oct: larger, so the lamp's warm light can spill onto the real table beyond the rim (same draw call).
+  const contact = createGroundQuad(layout.width + 0.5, layout.depth + 0.4);
   contact.translate(0, -TRAY.height + 0.0008, 0);
   const parts: Array<{ geometry: BufferGeometry; kind: number }> = [
     { geometry: contact, kind: 5 },

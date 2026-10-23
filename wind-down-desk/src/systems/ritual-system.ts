@@ -21,6 +21,7 @@ import {
   OneHandGrabbable,
   PokeInteractable,
   Pressed,
+  Quaternion,
   RayInteractable,
   Vector2,
   Vector3,
@@ -31,7 +32,10 @@ import {
   type Entity,
 } from '@iwsdk/core';
 import { createDeskLayout, binById, BIN_IDS, BIN_STONE_SCALE, classifyDrop, deskToWorld, homePosition, nearestBinIndex, slotPosition, worldToDesk, type BinId, type DeskFrame, type DeskLayout, type Vec3 } from '../logic/desk-layout.ts';
-import { gazePick, type GazeTarget } from '../logic/gaze.ts';
+import { easeToward, GAZE, gazeAngle, GazeFocus, gazePick, type GazeTarget } from '../logic/gaze.ts';
+import { accessLine, DWELL_SELECT, parseAccessCommand, type AccessPrefs } from '../logic/access.ts';
+import { EXAMPLE_STONE, ghostFrame, ghostTarget, onboardingStep, SPOKEN_EXAMPLE } from '../logic/onboarding.ts';
+import { GhostHand, HandLook } from '../desk/hands.ts';
 import { starPosition } from '../logic/memory.ts';
 import { fallbackFrame, frameOnTable, type HeadPose, type PlaneCandidate } from '../logic/placement.ts';
 import { chooseSurface, meshTop, type MeshBox, type SurfaceChoice } from '../logic/surfaces.ts';
@@ -65,6 +69,7 @@ import { DONE_LABEL, releaseChoices, unloadChoices, WRITE_LABEL } from '../logic
 import { eveningStep, eveningTarget } from '../logic/evening-light.ts';
 import { requestWrite } from '../voice/keyboard.ts';
 import { secs, track } from '../visits.ts';
+import { PauseGate, xrVisible } from '../logic/pause.ts';
 
 interface Stone {
   id: string;
@@ -91,6 +96,8 @@ interface Stone {
   /** Hover lift (visionOS-style: highlight + a few millimetres toward you). */
   lift: Spring;
   liftApplied: number;
+  /** 0..1: soft gaze halo level (eased, never flashing). */
+  gazeK: number;
   /** Small yaw offset so the stones do not line up like tiles (text stays readable). */
   yawJitter: number;
   dissolving: number; // < 0: not dissolving; else seconds elapsed
@@ -114,8 +121,21 @@ function lifted(frame: DeskFrame, mode: 'table' | 'floating'): DeskFrame {
   return mode === 'table' ? { ...frame, y: frame.y + TRAY.height } : frame;
 }
 
+/** Gaze ids of the bowls (same order as BIN_IDS). */
+const BIN_GAZE_IDS = ['bin:tomorrow', 'bin:later', 'bin:let-go'];
+
 function easeInOut(k: number): number {
   return k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+}
+
+/** True when the object and all its parents are visible (a hidden menu's chips are not gaze targets). */
+function visibleInScene(obj: { visible: boolean; parent: unknown }): boolean {
+  let o: { visible: boolean; parent: unknown } | null = obj;
+  while (o != null) {
+    if (!o.visible) return false;
+    o = o.parent as typeof o;
+  }
+  return true;
 }
 
 function ordinalWord(n: number): string {
@@ -128,6 +148,7 @@ export class RitualSystem extends createSystem({
   weightHeld: { required: [WeightStone, Grabbed] },
   pressed: { required: [DeskButton, Pressed] },
   hovered: { required: [DeskButton, Hovered] },
+  buttons: { required: [DeskButton] },
   planes: { required: [XRPlane] },
   meshes: { required: [XRMesh] },
 }) {
@@ -155,6 +176,56 @@ export class RitualSystem extends createSystem({
   /** A desk restored outside your view: its sound plays again once if you have not turned to it. */
   private offscreenCueAt = -1;
   private lastBearing: Bearing | null = null;
+  // 23 Oct — the first minute, shown not told (logic/onboarding.ts) and a desk that answers you.
+  private firstEvening = false;
+  private lastActivity = 0;
+  private exampleShown = false;
+  private ghostT = 0;
+  private ghostStone: string | null = null;
+  private ghostSuggest = false;
+  private gazeTipAt = -1;
+  private gazeTipShown = false;
+  private sortedNow = 0;
+  private lampGazeK = 0;
+  private readonly hoveredIds = new Set<string>();
+  private hoverSoundAt = -1;
+  private readonly gazeFocus = new GazeFocus(GAZE.dwell, GAZE.release);
+  private readonly gazeQ = new Quaternion();
+  private gazeSource: 'eyes' | 'head' = 'head';
+  private gazeGain = 1;
+  private gazedBin = -1;
+  /** Look and pinch: the stone chosen by gaze + pinch, waiting for a bowl. */
+  private chosenId: string | null = null;
+  /** 23 Oct — accessibility (logic/access.ts) and gaze-only selection by dwell. */
+  private access: AccessPrefs = { gazeSelect: false, contrast: false, largeText: false };
+  private dwellId: string | null = null;
+  private dwellT = 0;
+  private dwellAlpha = 0;
+  /** After a selection, the same object needs the gaze to leave before it can be chosen again. */
+  private dwellLock: string | null = null;
+  private dwellHover: string | null = null;
+  private dwellHintShown = false;
+  /** Gaze id ("btn:<action>") ↔ action, cached so no string is built per frame. */
+  private readonly btnGazeId = new Map<string, string>();
+  private readonly btnAction = new Map<string, string>();
+  private chosenAt = 0;
+  private readonly onSelect = (e: XRInputSourceEvent) => this.onSelectStart(e.inputSource);
+  private selectSession: XRSession | null = null;
+  private readonly gazeDir: Vec3 = { x: 0, y: 0, z: -1 };
+  private readonly gazePool: GazeTarget[] = [];
+  private readonly handLook = new HandLook();
+  private abOff = false;
+  /** 23 Oct — pause / resume (logic/pause.ts): headset off, Meta menu, tab hidden. */
+  private readonly pauseGate = new PauseGate();
+  private pausedAt = -1;
+  private readonly onXrVisibility = () => this.applyPause(this.pauseGate.set('xr', xrVisible(this.selectSession?.visibilityState)));
+  private readonly onPageVisibility = () => this.applyPause(this.pauseGate.set('page', !document.hidden));
+  private readonly emulated = typeof window !== 'undefined' && (window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE != null;
+  private ghost!: GhostHand;
+  private readonly ghostAt = new Vector3();
+  private readonly relayHead = new Vector3();
+  private readonly relayDir = new Vector3();
+  private readonly ghostTo = new Vector3();
   /** An immersive session was really entered (the visit log's xr-exit is sent only then). */
   private xrEntered = false;
   /** The surface tonight's desk sits on (debug API, report). */
@@ -249,6 +320,13 @@ export class RitualSystem extends createSystem({
     this.visuals.living.audioLog = this.sounds.log;
     this.voice = new LampVoice(this.world);
     this.atlas = new StoneAtlas();
+    this.ghost = new GhostHand(this.world);
+    this.access = services.access.get();
+    this.visuals.setAccess(this.access.contrast, this.access.largeText);
+    services.access.onChange((prefs) => {
+      this.access = prefs;
+      this.visuals.setAccess(prefs.contrast, prefs.largeText);
+    });
     // Seven pebble shapes (size, oval, egg, tilt, thickness all differ); stones cycle through them.
     for (let seed = 1; seed <= 7; seed++) {
       this.stoneShapes.push(createPebbleGeometry(this.layout.tokenRadius * 1.08, this.layout.tokenRadius * 0.9, this.layout.tokenHeight * 1.5, 0.02, seed, -this.layout.tokenHeight / 2));
@@ -310,11 +388,18 @@ export class RitualSystem extends createSystem({
           this.xrEntered = false;
           this.deskAnchor.end();
           this.probe.stop();
+          this.selectSession?.removeEventListener('selectstart', this.onSelect as EventListener);
+          this.selectSession?.removeEventListener('visibilitychange', this.onXrVisibility);
+          this.applyPause(this.pauseGate.clear('xr'));
+          this.selectSession = null;
+          this.chosenId = null;
           this.pendingMove = null;
           this.preview2D();
         }
       }),
     );
+    document.addEventListener('visibilitychange', this.onPageVisibility);
+    this.cleanupFuncs.push(() => document.removeEventListener('visibilitychange', this.onPageVisibility));
     this.preview2D();
     this.exposeDebugApi();
   }
@@ -378,8 +463,19 @@ export class RitualSystem extends createSystem({
     this.offscreenCueAt = -1;
     this.lastBearing = null;
     this.deskAnchor.start(session, this.elapsed);
+    if (session != null) {
+      this.selectSession = session;
+      session.addEventListener('selectstart', this.onSelect as EventListener);
+      session.addEventListener('visibilitychange', this.onXrVisibility);
+    }
     this.xrEntered = true;
     track('xr-enter', { mode: session?.environmentBlendMode === 'opaque' ? 'vr' : 'ar' });
+    this.firstEvening = services.memory.snapshot().nights.length === 0 && services.memory.doneTonight().length === 0;
+    this.lastActivity = this.elapsed;
+    this.exampleShown = false;
+    this.ghostT = 0;
+    this.gazeTipAt = -1;
+    this.gazeTipShown = false;
     void this.probe.start(session);
     this.evening = 0.12;
     this.eveningGoal = 0.12;
@@ -587,6 +683,12 @@ export class RitualSystem extends createSystem({
     // v6: the lamp proposes a ritual (time, tonight, what it hears); the person decides.
     this.mode = 'choose';
     this.sounds.preloadRituals();
+    // 23 Oct: a first evening (a judge's cold start) goes straight to the core gesture — no question first.
+    if (this.firstEvening) {
+      this.lastActivity = this.elapsed;
+      this.startRitual('unload', undefined, 'hand');
+      return;
+    }
     this.propose(null, `${where.length > 0 ? `${where} ` : ''}${services.memory.welcomeLine()}`);
   }
 
@@ -666,6 +768,7 @@ export class RitualSystem extends createSystem({
       arrive: null,
       glow: 0,
       glowTarget: 0,
+      gazeK: 0,
       scaleTarget: 1,
       scale: new Spring(0.001),
       squash: new Spring(0),
@@ -719,6 +822,7 @@ export class RitualSystem extends createSystem({
   }
 
   private onPick(entity: Entity): void {
+    this.lastActivity = this.elapsed;
     const id = String(entity.getValue(WorryToken, 'tokenId'));
     const stone = this.stones.get(id);
     if (stone != null) {
@@ -875,11 +979,18 @@ export class RitualSystem extends createSystem({
 
   /** Every spoken sentence goes through here (real STT or the demo hook). */
   async handleUtterance(text: string): Promise<void> {
+    this.lastActivity = this.elapsed;
     const clean = text.trim();
     if (clean.length === 0) {
       return;
     }
     // Place and voice commands do not replace the last brain-dump line shown under the caption.
+    // 23 Oct — accessibility by voice: "look to select", "high contrast", "bigger text" (and their "off").
+    const accessCommand = parseAccessCommand(normalize(clean));
+    if (accessCommand != null) {
+      this.setAccess(accessCommand, 'voice');
+      return;
+    }
     const voiceCommand = parseVoiceToggle(normalize(clean));
     if (voiceCommand != null) {
       this.setVoice(voiceCommand);
@@ -1026,6 +1137,7 @@ export class RitualSystem extends createSystem({
   }
 
   private onButton(action: string): void {
+    this.lastActivity = this.elapsed;
     // A stone in the hand (or just let go of) means the hand is busy: desk controls next to the bowls ignore it.
     // 1.6 s: the hand coming back from the Let go bowl passes over the lamp (found while filming v5).
     const nearLamp = action === 'orb' || action === 'places' || action === 'voice' || action === 'rituals' || action.startsWith('place:') || action.startsWith('ritual:');
@@ -1206,7 +1318,7 @@ export class RitualSystem extends createSystem({
   /** The lamp proposes a ritual (and tints it in the menu). `heard`: what the person just said. */
   private propose(heard: string | null, sub?: string, justDone: RitualKind | null = null): void {
     const memory = services.memory;
-    const proposal = proposeRitual({ hour: new Date().getHours(), heard: heard ?? undefined, doneTonight: memory.doneTonight(), justDone });
+    const proposal = proposeRitual({ hour: new Date().getHours(), heard: heard ?? undefined, doneTonight: memory.doneTonight(), justDone, firstEvening: this.firstEvening });
     this.proposal = proposal;
     this.openRitualMenu(true);
     this.say(proposal.line, sub ?? (services.style.quiet ? 'Touch Yes, or Not now.' : proposal.sub));
@@ -2019,7 +2131,7 @@ export class RitualSystem extends createSystem({
     const key = [
       unloadDump ? `u${stones}:${[...this.usedTopics].join(',')}:${this.extracting}` : '',
       releaseAsk ? `r${stones}` : '',
-      p != null && this.mode === 'choose' ? `p${p.ritual}` : '',
+      p != null && this.mode === 'choose' ? `p${p.ritual}:${services.memory.doneTonight().length}` : '',
       placed && this.mode === 'breathe' ? 'b' : '',
       this.visuals.placesOpen || this.visuals.ritualMenuOpen ? 'm' : '',
     ].join('|');
@@ -2042,8 +2154,10 @@ export class RitualSystem extends createSystem({
     }
     // Replies.
     if (p != null && this.mode === 'choose') {
-      this.replyActions = [() => this.onRitualCommand({ type: 'accept' }), () => this.onRitualCommand({ type: 'decline' })];
-      this.visuals.setReplies(['Yes', 'Not now']);
+      // "One bus stop" (23 Oct): once a ritual is done tonight, the way out is always one touch away.
+      const canEnd = services.memory.doneTonight().length > 0 && p.ritual !== 'sleep';
+      this.replyActions = [() => this.onRitualCommand({ type: 'accept' }), canEnd ? () => this.goodnight() : () => this.onRitualCommand({ type: 'decline' })];
+      this.visuals.setReplies(['Yes', canEnd ? 'Good night' : 'Not now']);
     } else if (placed && this.mode === 'breathe') {
       this.replyActions = [() => this.onRitualCommand({ type: 'longer' }), () => this.onRitualCommand({ type: 'finish' })];
       this.visuals.setReplies(['Longer', 'Enough'], true);
@@ -2095,7 +2209,12 @@ export class RitualSystem extends createSystem({
     if (this.mode === 'unload' && (phase === 'dump' || phase === 'sort')) {
       this.baseCaption = {
         text: caption(this.ritual, this.captionExtra()),
-        sub: this.heardLine.length > 0 && phase === 'dump' ? `"${this.heardLine}"` : '',
+        sub:
+          this.heardLine.length > 0 && phase === 'dump'
+            ? `"${this.heardLine}"`
+            : phase === 'dump' && this.ritual.tokensOnDesk === 0 && !services.style.quiet && services.voice.state !== 'denied' && services.voice.state !== 'unavailable'
+              ? SPOKEN_EXAMPLE
+              : '',
       };
     }
     if (this.captionOverride != null && this.captionOverride.until > this.elapsed) {
@@ -2184,7 +2303,38 @@ export class RitualSystem extends createSystem({
 
   // ----------------------------------------------------------------- update
 
+  /**
+   * Pause: microphone off (an utterance in progress is dropped), the lamp stops talking, all sound suspended, and
+   * the evening's clock stops (timers, rituals, onboarding, animations freeze). Resume: everything as it was.
+   */
+  private applyPause(change: 'pause' | 'resume' | null): void {
+    if (change == null) return;
+    const ctx = this.audioContext();
+    if (change === 'pause') {
+      this.pausedAt = performance.now();
+      services.voice.pause(true);
+      this.voice.stop();
+      void ctx?.suspend().catch(() => {});
+      track('landing', { kind: 'paused' });
+    } else {
+      services.voice.pause(false);
+      void ctx?.resume().catch(() => {});
+      this.pausedAt = -1;
+    }
+  }
+
+  private audioContext(): AudioContext | null {
+    let ctx: AudioContext | null = null;
+    this.player.head.traverse((o) => {
+      const l = o as unknown as { type?: string; context?: AudioContext };
+      if (l.type === 'AudioListener' && l.context != null) ctx = l.context;
+    });
+    return ctx;
+  }
+
   update(delta: number): void {
+    // Paused: the evening's clock does not move (nothing runs, nothing listens).
+    if (this.pauseGate.paused) return;
     const dt = Math.min(delta, 0.05);
     this.elapsed += dt;
     timeUniform.value = this.elapsed;
@@ -2236,14 +2386,25 @@ export class RitualSystem extends createSystem({
     }
     this.updateStones(dt);
     this.updateHeld();
-    this.updateGaze();
+    // `abOff` (debug API, perf A/B only): skip this lot's per-frame additions to measure their cost at equal load.
+    if (!this.abOff) {
+      this.updateGaze(dt);
+      this.updateOnboarding(dt);
+    }
+    // In an emulator (dev, or the "Preview on this screen" page) there is no camera image behind the hands: the
+    // passthrough "hole" would show black, so emulated hands always use the soft translucent (Full) style.
+    // FoV-aware caption relay (follows your view when you have turned away from the desk).
+    this.player.head.getWorldPosition(this.relayHead);
+    this.player.head.getWorldDirection(this.relayDir).negate();
+    this.visuals.updateRelay(this.relayHead, this.relayDir, dt);
+    if (!this.abOff) this.handLook.update(this.world, this.emulated || (this.visuals.backdrop.place !== 'room' && this.visuals.backdrop.immersionLevel === 'full'));
     if (this.mode === 'breathe') this.updateBreathe(dt);
     if (this.mode === 'release') this.updateRelease(dt);
     this.updateLeavingWeight();
     this.rv.update(dt);
     // The opening shot (2D page): the lamp glows warm and full, the focal point of the still life.
     const preview = this.placementMode === 'preview';
-    this.visuals.orbState(preview || services.voice.state === 'listening', this.extracting > 0 || this.planBusy, services.voice.level, preview ? 0.6 : 0, services.voice.state === 'muted');
+    this.visuals.orbState(preview || services.voice.state === 'listening', this.extracting > 0 || this.planBusy, services.voice.level, preview ? 0.6 : this.lampGazeK * 0.6, services.voice.state === 'muted');
     this.visuals.update(dt);
     this.refreshTouch();
     this.updateEvening(dt);
@@ -2336,7 +2497,19 @@ export class RitualSystem extends createSystem({
       // Hover affordance: a hand within pinching range lights the stone and lifts it 4 mm.
       const near = Math.min(mesh.position.distanceTo(this.v), mesh.position.distanceTo(this.v2));
       const hovered = !held && stone.dissolving < 0 && near < this.layout.tokenRadius + 0.045;
-      stone.glowTarget = stone.dissolving >= 0 ? 0 : held ? 0.8 : hovered ? 0.6 : this.gazedId === stone.id ? 0.25 : 0;
+      // 23 Oct: a soft chime when a hand comes within reach of a stone (once per approach, never a stream).
+      if (hovered && !this.hoveredIds.has(stone.id)) {
+        this.hoveredIds.add(stone.id);
+        if (this.elapsed - this.hoverSoundAt > 0.6) {
+          this.hoverSoundAt = this.elapsed;
+          this.sounds.play('pearl', mesh.position.x, mesh.position.y, mesh.position.z);
+        }
+      } else if (!hovered) this.hoveredIds.delete(stone.id);
+      const shown = this.ghostStone === stone.id ? 0.3 + 0.2 * Math.sin(this.elapsed * 3.2) : 0;
+      // Gaze: a soft halo with its own slow ease (≥ 300 ms, logic/gaze.ts), halved in calm moments.
+      stone.gazeK = easeToward(stone.gazeK, this.gazedId === stone.id ? this.gazeGain : 0, dt);
+      const chosen = this.chosenId === stone.id ? 0.7 : 0;
+      stone.glowTarget = stone.dissolving >= 0 ? 0 : held ? 0.8 : hovered ? 0.6 : Math.max(chosen, shown, 0.4 * stone.gazeK);
       stone.glow += (stone.glowTarget - stone.glow) * (1 - Math.exp(-12 * dt));
       stone.uniforms.uGlow.value = stone.glow;
       stone.uniforms.uDone.value += (stone.done - stone.uniforms.uDone.value) * (1 - Math.exp(-2 * dt));
@@ -2393,23 +2566,337 @@ export class RitualSystem extends createSystem({
   }
 
   /** Head gaze → "this one" for voice commands. */
-  private updateGaze(): void {
-    const targets = this.gazeTargets;
-    targets.length = 0;
-    for (const stone of this.stones.values()) {
-      if (stone.dissolving < 0) {
-        const p = stone.mesh.position;
-        targets.push({ id: stone.id, x: p.x, y: p.y, z: p.z });
+  /**
+   * The gaze ray: eye gaze where the runtime provides it (an input source with targetRayMode "gaze", e.g. Quest Pro,
+   * Meta VR glasses), else the head (Quest 3 / 3S have no eye tracking). Writes origin → this.v, direction → gazeDir.
+   */
+  private gazeRay(): void {
+    const session = this.world.session as XRSession | undefined;
+    const frame = this.xrFrame;
+    const ref = this.renderer.xr.getReferenceSpace();
+    if (session != null && frame != null && ref != null) {
+      for (const src of session.inputSources) {
+        if (src.targetRayMode !== 'gaze') continue;
+        const pose = frame.getPose(src.targetRaySpace, ref);
+        if (pose == null) break;
+        const o = pose.transform.position;
+        const q = pose.transform.orientation;
+        this.v.set(o.x, o.y, o.z).applyMatrix4(this.player.matrixWorld);
+        // Target ray looks down -Z of its space.
+        this.v2.set(0, 0, -1).applyQuaternion(this.gazeQ.set(q.x, q.y, q.z, q.w)).transformDirection(this.player.matrixWorld);
+        this.gazeDir.x = this.v2.x;
+        this.gazeDir.y = this.v2.y;
+        this.gazeDir.z = this.v2.z;
+        this.gazeSource = 'eyes';
+        return;
       }
-    }
-    if (targets.length === 0) {
-      this.gazedId = null;
-      return;
     }
     const head = this.player.head;
     head.getWorldPosition(this.v);
     head.getWorldDirection(this.v2);
-    this.gazedId = gazePick(this.v, { x: -this.v2.x, y: -this.v2.y, z: -this.v2.z }, targets, 7);
+    this.gazeDir.x = -this.v2.x;
+    this.gazeDir.y = -this.v2.y;
+    this.gazeDir.z = -this.v2.z;
+    this.gazeSource = 'head';
+  }
+
+  private pushGazeTarget(id: string, x: number, y: number, z: number): void {
+    let g = this.gazePool[this.gazeTargets.length];
+    if (g == null) {
+      g = { id: '', x: 0, y: 0, z: 0 };
+      this.gazePool.push(g);
+    }
+    g.id = id;
+    g.x = x;
+    g.y = y;
+    g.z = z;
+    this.gazeTargets.push(g);
+  }
+
+  /**
+   * One gaze focus over the useful objects only (owner's rules, logic/gaze.ts GAZE): the lamp (it "looks up" at
+   * you), the stones ("you can take me"), and the bowls only while a stone is in hand or chosen ("drop here").
+   * ~250 ms dwell, hysteresis cone, one object at a time, soft rise and fall, halved in calm moments.
+   */
+  private updateGaze(dt: number): void {
+    const targets = this.gazeTargets;
+    targets.length = 0;
+    if (this.frame == null || !this.visuals.placed || this.placementMode === 'preview') {
+      this.gazedId = null;
+      this.gazeFocus.update(null, false, dt);
+      this.updateDwell(null, dt);
+      return;
+    }
+    this.gazeRay();
+    this.visuals.orb.getWorldPosition(this.ghostTo);
+    this.pushGazeTarget('lamp', this.ghostTo.x, this.ghostTo.y, this.ghostTo.z);
+    for (const stone of this.stones.values()) {
+      if (stone.dissolving < 0) this.pushGazeTarget(stone.id, stone.mesh.position.x, stone.mesh.position.y, stone.mesh.position.z);
+    }
+    const holding = this.queries.held.entities.size > 0;
+    if ((holding || this.chosenId != null) && this.mode === 'unload') {
+      for (let i = 0; i < BIN_IDS.length; i++) {
+        const bin = this.layout.bins[i];
+        this.local.x = bin.x;
+        this.local.y = 0.03;
+        this.local.z = bin.z;
+        deskToWorld(this.frame, this.local, this.world3);
+        this.pushGazeTarget(BIN_GAZE_IDS[i], this.world3.x, this.world3.y, this.world3.z);
+      }
+    }
+    if (this.access.gazeSelect) this.pushButtonTargets();
+    const dir = this.gazeDir;
+    const pick = gazePick(this.v, dir, targets, GAZE.take);
+    let keep = false;
+    for (let i = 0; i < targets.length; i++) {
+      if (targets[i].id === this.gazeFocus.focused) keep = gazeAngle(this.v, dir, targets[i]) <= GAZE.keep;
+    }
+    const focus = this.gazeFocus.update(pick, keep, dt);
+    const calm = this.mode === 'breathe' || this.mode === 'release' || this.mode === 'night' ? GAZE.calm : 1;
+    this.gazeGain = calm;
+    this.gazedId = focus != null && focus !== 'lamp' && !focus.startsWith('bin:') ? focus : null;
+    this.gazedBin = focus != null && focus.startsWith('bin:') ? BIN_GAZE_IDS.indexOf(focus) : -1;
+    // The lamp "looks up" when you look at it: a slight, slow brightening (rule 7).
+    this.lampGazeK = easeToward(this.lampGazeK, focus === 'lamp' ? calm : 0, dt);
+    this.visuals.setGazeBin(this.gazedBin);
+    // A chosen stone (look and pinch) waits 8 s at most (gaze-only selection: 20 s, nothing hurries you).
+    const wait = this.access.gazeSelect ? 20 : 8;
+    if (this.chosenId != null && (this.elapsed - this.chosenAt > wait || !this.stones.has(this.chosenId))) this.chosenId = null;
+    this.updateDwell(focus, dt);
+  }
+
+  /** Spoken or touched accessibility setting: saved in this browser, applied at once, said by the lamp. */
+  private setAccess(change: Partial<AccessPrefs>, via: 'voice' | 'button'): void {
+    this.access = services.access.set(change);
+    const setting = change.gazeSelect != null ? 'gaze-select' : change.contrast != null ? 'contrast' : 'large-text';
+    track('access', { setting: `${setting}:${Object.values(change)[0] ? 'on' : 'off'}`, via });
+    this.flash(accessLine(change), 3.5);
+    this.lastActivity = this.elapsed;
+  }
+
+  /** Gaze-only selection: every visible glass button is a gaze target too (the lamp stands for its own button). */
+  private pushButtonTargets(): void {
+    for (const entity of this.queries.buttons.entities) {
+      const action = String(entity.getValue(DeskButton, 'action'));
+      if (action === 'orb') continue;
+      const obj = entity.object3D;
+      if (obj == null || !visibleInScene(obj)) continue;
+      let id = this.btnGazeId.get(action);
+      if (id == null) {
+        id = `btn:${action}`;
+        this.btnGazeId.set(action, id);
+        this.btnAction.set(id, action);
+      }
+      obj.getWorldPosition(this.ghostTo);
+      this.pushGazeTarget(id, this.ghostTo.x, this.ghostTo.y, this.ghostTo.z);
+    }
+  }
+
+  /** What a dwell may select right now (the same rules as the hands). */
+  private dwellAllowed(id: string): boolean {
+    if (id === 'lamp') return this.mode !== 'breathe';
+    if (id.startsWith('btn:')) return true;
+    const unloading = this.mode === 'unload' && (this.ritual.phase === 'dump' || this.ritual.phase === 'sort');
+    if (id.startsWith('bin:')) return unloading && this.chosenId != null;
+    if (!unloading || id === this.chosenId) return false;
+    const token = this.session.get(id);
+    return token != null && token.bin == null && !token.released;
+  }
+
+  /**
+   * Gaze-only selection (accessibility, no hands, no voice): look at something for 1.2 s — the ring fills — and it
+   * is chosen: a stone, then a bowl to put it in; the lamp (listen); any glass button (replies, words, menus).
+   */
+  private updateDwell(focus: string | null, dt: number): void {
+    if (!this.access.gazeSelect) {
+      if (this.dwellId != null || this.dwellAlpha > 0) {
+        this.dwellId = null;
+        this.dwellT = 0;
+        this.dwellAlpha = 0;
+        this.visuals.showDwell(0, 0, 0, this.v, 0, 0);
+        if (this.dwellHover != null) this.visuals.setHover(this.dwellHover, false);
+        this.dwellHover = null;
+      }
+      return;
+    }
+    if (focus !== this.dwellId) {
+      if (this.dwellHover != null) this.visuals.setHover(this.dwellHover, false);
+      this.dwellHover = null;
+      this.dwellId = focus;
+      this.dwellT = 0;
+      if (focus !== this.dwellLock) this.dwellLock = null;
+      const action = focus != null ? this.btnAction.get(focus) : undefined;
+      if (action != null) {
+        this.visuals.setHover(action, true);
+        this.dwellHover = action;
+      }
+    }
+    const armed = focus != null && focus !== this.dwellLock && this.dwellAllowed(focus);
+    this.dwellT = armed ? this.dwellT + dt : 0;
+    this.dwellAlpha = easeToward(this.dwellAlpha, armed ? 1 : 0, dt, 8);
+    let tx = 0;
+    let ty = 0;
+    let tz = 0;
+    const targets = this.gazeTargets;
+    for (let i = 0; i < targets.length; i++) {
+      if (targets[i].id !== focus) continue;
+      tx = targets[i].x;
+      ty = targets[i].y;
+      tz = targets[i].z;
+    }
+    this.visuals.showDwell(tx, ty, tz, this.v, Math.min(1, this.dwellT / DWELL_SELECT), focus != null ? this.dwellAlpha : 0);
+    if (!armed || focus == null || this.dwellT < DWELL_SELECT) return;
+    this.dwellLock = focus;
+    this.dwellT = 0;
+    this.lastActivity = this.elapsed;
+    if (focus === 'lamp') {
+      this.onButton('orb');
+      return;
+    }
+    const action = this.btnAction.get(focus);
+    if (action != null) {
+      this.onButton(action);
+      return;
+    }
+    if (focus.startsWith('bin:')) {
+      const id = this.chosenId;
+      this.chosenId = null;
+      const bin = BIN_IDS[BIN_GAZE_IDS.indexOf(focus)];
+      if (id != null && bin != null) {
+        track('look-pinch', { bin }, 'look-dwell');
+        this.place(id, bin, 'hand');
+      }
+      return;
+    }
+    this.chosenId = focus;
+    this.chosenAt = this.elapsed;
+    this.sounds.play('pearl', tx, ty, tz);
+    if (!this.dwellHintShown) {
+      this.dwellHintShown = true;
+      this.flash('Now look at a bowl.', 3, '', false);
+    }
+  }
+
+  /**
+   * Look and pinch (23 Oct, seated and accessible): look at a stone and pinch (anywhere, without reaching it) to
+   * choose it; look at a bowl and pinch to place it there. A pinch near a stone stays a normal grab; a pinch on a
+   * glass button stays a button.
+   */
+  private onSelectStart(source: XRInputSource): void {
+    if (this.mode !== 'unload' || (this.ritual.phase !== 'dump' && this.ritual.phase !== 'sort')) return;
+    if (this.queries.held.entities.size > 0 || this.queries.hovered.entities.size > 0) return;
+    const side = source.handedness === 'left' ? 'left' : 'right';
+    this.player.indexTipSpaces[side].getWorldPosition(this.v2);
+    for (const stone of this.stones.values()) {
+      if (stone.mesh.position.distanceTo(this.v2) < 0.09) return;
+    }
+    this.lastActivity = this.elapsed;
+    if (this.chosenId != null && this.gazedBin >= 0) {
+      const id = this.chosenId;
+      this.chosenId = null;
+      track('look-pinch', { bin: BIN_IDS[this.gazedBin] }, 'look-pinch');
+      this.place(id, BIN_IDS[this.gazedBin], 'hand');
+      return;
+    }
+    const token = this.gazedId != null ? this.session.get(this.gazedId) : undefined;
+    if (token != null && token.bin == null && !token.released) {
+      this.chosenId = token.id;
+      this.chosenAt = this.elapsed;
+      const m = this.stones.get(token.id)?.mesh.position;
+      if (m != null) this.sounds.play('pearl', m.x, m.y, m.z);
+      return;
+    }
+    this.chosenId = null;
+  }
+
+  /**
+   * 23 Oct — the first minute (logic/onboarding.ts): after 8 s of silence an example stone lands; while no stone
+   * has been placed, a ghost hand shows the pinch, carrying it to the bowl that now breathes with light; after the
+   * first stone, once, the head-gaze tip ("look at a stone and say later").
+   */
+  private updateOnboarding(dt: number): void {
+    if (services.voice.recording) this.lastActivity = this.elapsed;
+    const holding = this.queries.held.entities.size > 0;
+    // Decisions ten times a second (no per-frame allocation); the ghost's motion below runs every frame.
+    this.onbTick -= dt;
+    if (this.onbTick <= 0) {
+      this.onbTick = 0.1;
+      this.decideOnboarding(holding);
+    }
+    this.animateGhost(dt, holding);
+  }
+
+  private onbTick = 0;
+  private readonly tallies = { sorted: 0, unsorted: 0, first: null as TokenState | null };
+  private ghostBin: BinId | null = null;
+  private readonly ghostF = { travel: 0, lift: 0, pinch: 0, alpha: 0 };
+
+  private decideOnboarding(holding: boolean): void {
+    const placed = this.placementMode === 'table' || this.placementMode === 'floating';
+    const t = this.session.tally(this.tallies);
+    const sorted = t.sorted;
+    if (sorted > this.sortedNow && this.sortedNow === 0 && this.firstEvening && !services.style.quiet && !this.gazeTipShown) this.gazeTipAt = this.elapsed + 2.4;
+    this.sortedNow = sorted;
+    const step = placed
+      ? onboardingStep({
+          firstEvening: this.firstEvening,
+          mode: this.mode,
+          phase: this.ritual.phase,
+          stonesOnDesk: t.unsorted,
+          sortedThisSession: sorted,
+          holding,
+          idle: this.elapsed - this.lastActivity,
+          exampleShown: this.exampleShown,
+        })
+      : { spawnExample: false, ghost: false };
+    if (step.spawnExample) {
+      this.exampleShown = true;
+      if (this.spawnStone(EXAMPLE_STONE, 0, 'example') != null) {
+        this.event({ type: 'tokens-added', count: 1 });
+        this.flash('An example. Pinch it, drop it in a bowl.', 6, '', false);
+      }
+      this.lastActivity = this.elapsed;
+    }
+    if (this.gazeTipAt >= 0 && this.elapsed >= this.gazeTipAt) {
+      this.gazeTipAt = -1;
+      this.gazeTipShown = true;
+      if (this.session.unsorted().length > 0) this.flash('Tip: look at a stone and say "later".', 5, '', false);
+    }
+    const target = step.ghost && t.first != null ? ghostTarget([t.first]) : null;
+    if (target == null || !this.stones.has(target.stone) || (!this.ghost.ready && (this.handLook.source == null || !this.ghost.build(this.handLook.source)))) {
+      this.ghostStone = null;
+      this.ghostBin = null;
+      return;
+    }
+    if (this.ghostStone !== target.stone) this.ghostT = 0;
+    this.ghostStone = target.stone;
+    this.ghostBin = target.bin;
+  }
+
+  private animateGhost(dt: number, holding: boolean): void {
+    const stone = this.ghostStone != null ? this.stones.get(this.ghostStone) : undefined;
+    if (stone == null || this.ghostBin == null || this.frame == null || holding) {
+      if (this.ghostStone != null && holding) this.ghostStone = null;
+      this.ghost.hide();
+      this.ghostT = 0;
+      if (this.ghostSuggest && !holding) this.visuals.setSuggest(-1);
+      this.ghostSuggest = false;
+      return;
+    }
+    this.ghostT += dt;
+    const f = ghostFrame(this.ghostT, this.ghostF);
+    // Same order as BIN_IDS (desk-layout): an index lookup, no closure per frame.
+    const bin = this.layout.bins[BIN_IDS.indexOf(this.ghostBin)];
+    this.local.x = bin.x;
+    this.local.y = 0.03;
+    this.local.z = bin.z;
+    deskToWorld(this.frame, this.local, this.world3);
+    this.ghostTo.set(this.world3.x, this.world3.y, this.world3.z);
+    this.ghostAt.copy(stone.mesh.position).lerp(this.ghostTo, f.travel);
+    this.ghostAt.y += f.lift;
+    this.ghost.pose(this.ghostAt, this.frame.yaw, f.pinch, f.alpha);
+    this.visuals.setSuggest(BIN_IDS.indexOf(this.ghostBin));
+    this.ghostSuggest = true;
   }
 
   // --------------------------------------------------------------- debug API
@@ -2449,6 +2936,12 @@ export class RitualSystem extends createSystem({
         return deskToWorld(this.frame, { x: def.x, y: 0.03, z: def.z });
       },
       press: (action: string) => this.onButton(action),
+      /** Accessibility settings (as the landing's button would) and the gaze-dwell state. */
+      access: (change?: Partial<AccessPrefs>) => {
+        if (change != null) this.setAccess(change, 'button');
+        return { ...this.access };
+      },
+      dwell: () => ({ id: this.dwellId, t: +this.dwellT.toFixed(2), chosen: this.chosenId, lock: this.dwellLock, ring: this.visuals.dwellRing.visible, gazed: this.gazeFocus.focused }),
       /** Talk with the lamp / quiet evening (the play-test panel's switch; the landing page has its own). */
       style: (style: 'talk' | 'quiet') => {
         services.style.set(style);
@@ -2504,6 +2997,21 @@ export class RitualSystem extends createSystem({
           else this.say(caption(this.ritual, this.captionExtra()), where);
           this.showStars();
         }, 500);
+      },
+      /** Pause / resume as the headset would (tests): source 'xr' or 'page', visible or not. */
+      pause: (source: 'xr' | 'page', visible: boolean) => {
+        this.applyPause(this.pauseGate.set(source, visible));
+        return { paused: this.pauseGate.paused, mic: services.voice.state, elapsed: +this.elapsed.toFixed(2) };
+      },
+      /** Perf A/B: switch this lot's per-frame additions (gaze, onboarding, hand look) off / on. */
+      ab: (off: boolean) => {
+        this.abOff = off;
+        return this.abOff;
+      },
+      /** 23 Oct: the first minute (example stone, ghost hand target, gaze focus). */
+      onboarding: () => {
+        const t = this.ghostStone != null ? ghostTarget(this.session.all()) : null;
+        return { gazeSource: this.gazeSource, gazedBin: this.gazedBin, chosen: this.chosenId, firstEvening: this.firstEvening, example: this.exampleShown, ghost: this.ghostStone != null, stone: t?.stone ?? null, bin: t?.bin ?? null, gazed: this.gazedId, lampGaze: +this.lampGazeK.toFixed(2), idle: +(this.elapsed - this.lastActivity).toFixed(1), ghostReady: this.ghost.ready };
       },
       /** 22 Oct: the desk's persistent anchor (status, saved record, tonight's decision, short log). */
       anchor: () => this.deskAnchor.debug(),

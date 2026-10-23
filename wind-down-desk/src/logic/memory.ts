@@ -317,7 +317,8 @@ export class RitualMemory {
     if (streak >= 2) {
       return `Evening ${streak} in a row.${sky}`;
     }
-    return `Welcome back.${sky}`;
+    // 23 Oct (Best Reason to Come Back): progress is visible from the first seconds of a second evening.
+    return `Evening ${nights + 1} at your desk.${sky}`;
   }
 }
 

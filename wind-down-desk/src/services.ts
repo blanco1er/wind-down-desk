@@ -2,6 +2,7 @@
  * App-wide services shared by the 2D landing page and the XR systems.
  */
 import { AgentClient } from './agent-client.ts';
+import { ACCESS_KEY, parseAccess, type AccessPrefs } from './logic/access.ts';
 import { RitualMemory, type KeyValueStore } from './logic/memory.ts';
 import { readStyle, writeStyle, type EveningStyle } from './logic/style.ts';
 import { VoiceInput } from './voice/mic.ts';
@@ -37,5 +38,25 @@ export const services = {
       styleListeners.push(listener);
     },
   },
+  /** 23 Oct — accessibility settings (logic/access.ts), shared by the landing's button and the voice in XR. */
+  access: {
+    get(): AccessPrefs {
+      return parseAccess(safeStorage()?.getItem(ACCESS_KEY) ?? null);
+    },
+    set(change: Partial<AccessPrefs>): AccessPrefs {
+      const next = { ...services.access.get(), ...change };
+      try {
+        safeStorage()?.setItem(ACCESS_KEY, JSON.stringify(next));
+      } catch {
+        // Private window: the setting lasts for this visit only.
+      }
+      for (const listener of accessListeners) listener(next);
+      return next;
+    },
+    onChange(listener: (prefs: AccessPrefs) => void): void {
+      accessListeners.push(listener);
+    },
+  },
 };
 const styleListeners: Array<(style: EveningStyle) => void> = [];
+const accessListeners: Array<(prefs: AccessPrefs) => void> = [];

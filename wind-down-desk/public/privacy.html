@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Privacy · Wind-Down Desk</title>
+    <meta name="description" content="What Wind-Down Desk does with your voice and your words." />
+    <style>
+      :root {
+        --ink: #0d0b0a;
+        --primary: rgba(255, 255, 255, 0.96);
+        --secondary: rgba(235, 235, 245, 0.72);
+        --tertiary: rgba(235, 235, 245, 0.5);
+        --amber: #f4c27e;
+        --edge: rgba(255, 250, 240, 0.16);
+        --font: 'Manrope', 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(ellipse 80% 50% at 50% 0%, #2b2018 0%, #17110d 55%, #0a0807 100%) var(--ink);
+        color: var(--primary);
+        font: 400 16px/1.6 var(--font);
+      }
+      main {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: calc(32px + env(safe-area-inset-top)) 16px calc(48px + env(safe-area-inset-bottom));
+      }
+      a { color: var(--amber); text-underline-offset: 3px; }
+      a:focus-visible { outline: 3px solid rgba(255, 255, 255, 0.7); outline-offset: 3px; border-radius: 4px; }
+      .back { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; text-decoration: none; }
+      h1 { margin: 12px 0 6px; font-size: 30px; line-height: 1.2; letter-spacing: -0.01em; }
+      .lede { margin: 0 0 28px; color: var(--secondary); font-size: 17px; }
+      h2 { margin: 30px 0 8px; font-size: 18px; line-height: 1.35; }
+      p, li { color: var(--secondary); }
+      p { margin: 0 0 12px; }
+      ul { margin: 0 0 12px; padding-left: 20px; }
+      li { margin: 4px 0; }
+      strong { color: var(--primary); font-weight: 600; }
+      .note {
+        margin: 32px 0 0;
+        padding: 16px 18px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.05);
+        box-shadow: inset 0 0 0 1px var(--edge);
+      }
+      .note p:last-child { margin: 0; }
+      footer { margin-top: 36px; font-size: 13px; color: var(--tertiary); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="/">← Wind-Down Desk</a>
+      <h1>Privacy</h1>
+      <p class="lede">An evening ritual is private. Here is everything that happens to what you say, in plain words.</p>
+
+      <h2>Your voice</h2>
+      <p>
+        When you talk with the lamp, the short clip of what you just said is sent to <strong>Groq</strong>, which turns it
+        into text. Our server only passes it along: it never keeps the recording.
+      </p>
+      <p>Choose <strong>Quiet evening</strong> and the microphone is never used at all.</p>
+
+      <h2>Your words</h2>
+      <p>
+        The text of what you said is sent to <strong>Google Gemini</strong>, which turns it into the stones on your desk
+        and the small plan for tomorrow. Our server keeps none of it.
+      </p>
+      <p>
+        Groq and Google handle these requests under their own terms, which may let them keep them for a while:
+        <a href="https://groq.com/privacy-policy/" rel="noopener">Groq privacy policy</a>,
+        <a href="https://ai.google.dev/gemini-api/terms" rel="noopener">Gemini API terms</a>.
+        If they cannot be reached, a simpler helper runs on your device instead and nothing leaves it.
+      </p>
+
+      <h2>On your device</h2>
+      <p>
+        Your stones, your plan for tomorrow, the stars of what you let go, where your desk stands and your settings are kept
+        in this browser only, on this headset. Nobody else can see them. Clearing this site's data in the browser erases
+        them for good.
+      </p>
+
+      <h2>The visit counter</h2>
+      <p>To learn whether the demo works, the page counts a few anonymous steps, for example:</p>
+      <ul>
+        <li>the desk was placed, a ritual started, a place was chosen;</li>
+        <li>the kind of device and browser (for example “Quest, Meta browser”).</li>
+      </ul>
+      <p>
+        <strong>Never your words, never your voice, never your IP address.</strong> No cookies, no advertising, no tracking
+        across other sites. A visit is only a one-way code that cannot be turned back into who you are.
+      </p>
+
+      <div class="note">
+        <p><strong>Not therapy or medical advice.</strong> Wind-Down Desk is a calm way to end the day. It does not
+        replace a doctor or a therapist. If you are struggling, please reach out to someone you trust or to a local
+        helpline.</p>
+      </div>
+
+      <footer>Wind-Down Desk · last updated 23 October 2026</footer>
+    </main>
+  </body>
+</html>
