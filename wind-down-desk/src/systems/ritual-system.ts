@@ -1491,6 +1491,21 @@ export class RitualSystem extends createSystem({
     if (this.prepLog.length > 20) this.prepLog.shift();
   }
 
+  private async upgradePlace(id: PlaceId): Promise<void> {
+    if (this.prepBusy) return;
+    this.prepBusy = true;
+    const t0 = performance.now();
+    let ok = false;
+    try {
+      ok = await this.visuals.backdrop.prepare(id);
+    } catch {
+      ok = false;
+    }
+    this.prepBusy = false;
+    this.prepLog.push({ id, why: 'hd upgrade', ms: Math.round(performance.now() - t0), ok });
+    if (this.prepLog.length > 20) this.prepLog.shift();
+  }
+
   /**
    * Calm moments (once a second): the lamp silent, nothing touched or said for 3 s, not breathing or releasing, the
    * arrival over → the next likely place is prepared: the last place you chose, then the lake (Talk it through).
@@ -1507,6 +1522,13 @@ export class RitualSystem extends createSystem({
       last = localStorage.getItem(LAST_PLACE_KEY);
     } catch {
       last = null;
+    }
+    // 26 Oct (HD places): the place you are in, shown in 6k because it was chosen before its 8k was ready, comes
+    // first: same image, sharper, swapped in place (no crossfade).
+    const here = this.visuals.backdrop.place;
+    if (here !== 'room' && this.visuals.backdrop.needsHd(here)) {
+      void this.upgradePlace(here);
+      return;
     }
     const ready = this.visuals.backdrop.preparedPlaces;
     for (const id of [last, 'moon-lake']) {
@@ -3529,6 +3551,12 @@ export class RitualSystem extends createSystem({
       living: () => this.visuals.living.debug(),
       /** Axe 5: the panorama's ground projected on the real ground (motion parallax, stereo) — on/off for A/B. */
       groundParallax: (on: boolean) => this.visuals.living.setGroundParallax(on),
+      /** HD places: force on / off (null = this GPU decides), and the state of each place on the GPU. */
+      hd: (on?: boolean | null) => {
+        if (on !== undefined) this.visuals.backdrop.hdForced = on;
+        const b = this.visuals.backdrop;
+        return { ...b.hdStatus(), here: b.place, hereHd: b.isHd(b.place), prepared: b.preparedPlaces.map((id) => ({ id, hd: b.isHd(id) })), gpuBytes: b.gpuBytes(), format: b.lastFormat, uploadMs: b.lastUploadMs, timeline: b.prepTimeline.slice() };
+      },
       /** Axe 5: GPU cost of the ground projection (backdrop alone, one Quest 3 eye, on vs off). */
       backdropBench: (n?: number) => benchBackdrop(this.renderer, this.visuals.backdrop.mesh, this.player.head.getWorldPosition(new Vector3()), n),
       /** GPU memory held by place panoramas (bytes) and the compressed format the GPU received. */

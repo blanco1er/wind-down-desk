@@ -33,6 +33,8 @@ const update = new Ring();
 const render = new Ring();
 const calls = new Ring();
 const triangles = new Ring();
+/** Frames over 22 ms with their time (performance.now()), to line them up with what the app was doing. */
+const longFrames: Array<[number, number]> = [];
 let frameStart = 0;
 let lastFrameStart = 0;
 
@@ -61,8 +63,12 @@ export class PerfBeginSystem extends createSystem({}) {
         geometries: renderer.info.memory.geometries,
         pixelRatio: renderer.getPixelRatio(),
         xr: renderer.xr.isPresenting,
+        longFrames: longFrames.slice(),
       }),
-      perfReset: () => [frame, update, render, calls, triangles].forEach((r) => r.reset()),
+      perfReset: () => {
+        [frame, update, render, calls, triangles].forEach((r) => r.reset());
+        longFrames.length = 0;
+      },
     };
     const w = window as unknown as { __wdd?: Record<string, unknown> };
     w.__wdd = Object.assign(w.__wdd ?? {}, api);
@@ -71,7 +77,12 @@ export class PerfBeginSystem extends createSystem({}) {
   update(): void {
     frameStart = performance.now();
     if (lastFrameStart > 0) {
-      frame.push(frameStart - lastFrameStart);
+      const frameMs = frameStart - lastFrameStart;
+      frame.push(frameMs);
+      if (frameMs > 22) {
+        longFrames.push([Math.round(performance.now()), +frameMs.toFixed(1)]);
+        if (longFrames.length > 50) longFrames.shift();
+      }
     }
     lastFrameStart = frameStart;
   }

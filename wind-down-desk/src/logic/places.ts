@@ -102,6 +102,12 @@ export interface Place {
   arrive: string;
   /** KTX2 panorama (equal-area layout), lazy-loaded. */
   photo: string | null;
+  /**
+   * 26 Oct (HD places): the same panorama upscaled ×4 (DAT2) to 8192 × 2732, UASTC → ASTC 4×4 / BC7 / ETC2 on the GPU
+   * (21.3 MiB, 8–10 MB to download). Loaded only in calm moments and only if the GPU takes 8192-wide compressed
+   * textures; `photo` (6k ETC1S) stays the fast path and the fallback.
+   */
+  photoHd?: string;
   /** Equirectangular JPG used if the KTX2 path is unavailable. */
   fallback: string | null;
   thumb: string | null;
@@ -141,6 +147,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Ember fire',
     arrive: 'A campfire under the stars. Let it burn low.',
     photo: './environments/night-clearing.ktx2',
+    photoHd: './environments/night-clearing-8k.ktx2',
     fallback: './environments/night-clearing-2k.jpg',
     thumb: './environments/night-clearing-thumb.jpg',
     yaw: 0,
@@ -153,6 +160,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Moonlit lake',
     arrive: 'A still lake under the moon. Mist on the water.',
     photo: './environments/night-lake-moon.ktx2',
+    photoHd: './environments/night-lake-moon-8k.ktx2',
     fallback: './environments/night-lake-moon-2k.jpg',
     thumb: './environments/night-lake-moon-thumb.jpg',
     yaw: 0,
@@ -165,6 +173,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Moon beach',
     arrive: 'A beach under the moon. The waves come and go.',
     photo: './environments/night-beach.ktx2',
+    photoHd: './environments/night-beach-8k.ktx2',
     fallback: './environments/night-beach-2k.jpg',
     thumb: './environments/night-beach-thumb.jpg',
     yaw: 0,
@@ -177,6 +186,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Northern lights',
     arrive: 'Snow is falling. The northern lights drift above the mountains.',
     photo: './environments/night-aurora.ktx2',
+    photoHd: './environments/night-aurora-8k.ktx2',
     fallback: './environments/night-aurora-2k.jpg',
     thumb: './environments/night-aurora-thumb.jpg',
     yaw: 0,
@@ -189,6 +199,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Rain veranda',
     arrive: 'A covered veranda. Soft rain on the garden.',
     photo: './environments/night-veranda.ktx2',
+    photoHd: './environments/night-veranda-8k.ktx2',
     fallback: './environments/night-veranda-2k.jpg',
     thumb: './environments/night-veranda-thumb.jpg',
     yaw: 0,
@@ -213,6 +224,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Firefly meadow',
     arrive: 'A summer meadow at night. The fireflies are out.',
     photo: './environments/night-fireflies.ktx2',
+    photoHd: './environments/night-fireflies-8k.ktx2',
     fallback: './environments/night-fireflies-2k.jpg',
     thumb: './environments/night-fireflies-thumb.jpg',
     yaw: 0,
@@ -237,6 +249,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Fireside cabin',
     arrive: 'A cabin by the fire. The logs crackle softly.',
     photo: './environments/night-chalet.ktx2',
+    photoHd: './environments/night-chalet-8k.ktx2',
     fallback: './environments/night-chalet-2k.jpg',
     thumb: './environments/night-chalet-thumb.jpg',
     yaw: 0,
@@ -249,6 +262,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Rooftop city',
     arrive: 'A quiet rooftop. The city is asleep.',
     photo: './environments/night-rooftop.ktx2',
+    photoHd: './environments/night-rooftop-8k.ktx2',
     fallback: './environments/night-rooftop-2k.jpg',
     thumb: './environments/night-rooftop-thumb.jpg',
     yaw: 0,
@@ -375,4 +389,19 @@ export function adaptLight(light: PlaceLight, m: PlaceMeasure | null, immersion 
     fillSky: fill(light.fillSky, m.sky),
     fillGround: fill(light.fillGround, m.ground),
   };
+}
+
+/** HD panoramas are 8192 wide: the GPU must take that size. */
+export const HD_WIDTH = 8192;
+
+/**
+ * 26 Oct (HD places): can this GPU show the 8k UASTC panoramas? It needs 8192-wide textures (MAX_TEXTURE_SIZE, not
+ * documented by Meta for Quest Browser: read at run time) and a compressed target for UASTC — ASTC (Adreno, Khronos
+ * KTX guide), BC7 (desktop) or ETC2. Without one, three's KTX2Loader would decode to raw RGBA: 89 MB per place. No.
+ */
+export function hdSupport(maxTextureSize: number, has: (ext: string) => boolean): { ok: boolean; why: string } {
+  if (maxTextureSize < HD_WIDTH) return { ok: false, why: `MAX_TEXTURE_SIZE ${maxTextureSize} < ${HD_WIDTH}` };
+  const target = has('WEBGL_compressed_texture_astc') ? 'ASTC' : has('EXT_texture_compression_bptc') ? 'BC7' : has('WEBGL_compressed_texture_etc') ? 'ETC2' : null;
+  if (target == null) return { ok: false, why: 'no ASTC / BC7 / ETC2: UASTC would be decoded uncompressed' };
+  return { ok: true, why: `${target}, MAX_TEXTURE_SIZE ${maxTextureSize}` };
 }

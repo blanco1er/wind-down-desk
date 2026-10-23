@@ -12,6 +12,12 @@
  *   0.58 MB) is fetched with the first place only. At most two places live
  *   during a crossfade; the one you left is released afterwards. If KTX2 fails,
  *   a 2048 × 1024 equirectangular JPG is used instead.
+ * - HD places (26 Oct): 8 places also have an 8192 × 2732 UASTC panorama (DAT2
+ *   ×4, 8–10 MB, 21.3 MiB on the GPU as ASTC 4×4). It is loaded only in calm
+ *   moments (prepare()), transcoded in the loader's worker, and only if the GPU
+ *   takes 8192-wide compressed textures (hdSupport, logic/places.ts). A place
+ *   chosen before its 8k is ready opens in 6k at once; the 8k is swapped in at
+ *   the next calm moment (same image, same frame: only sharper).
  * - Crossfade (1.6 s) between places, or from / to passthrough via alpha.
  * - "Table stays" (default): the lower part of the view, your real table
  *   and hands, stays passthrough; "Full": the place surrounds you.
@@ -33,7 +39,7 @@ import {
 } from '@iwsdk/core';
 import type { WebGLRenderer } from '@iwsdk/core';
 import { ktx2Loader } from './ktx2.ts';
-import { adaptLight, mixLight, PLACES, ROOM_LIGHT, type Immersion, type Place, type PlaceId, type PlaceLight, type PlaceMeasure } from '../logic/places.ts';
+import { adaptLight, hdSupport, mixLight, PLACES, ROOM_LIGHT, type Immersion, type Place, type PlaceId, type PlaceLight, type PlaceMeasure } from '../logic/places.ts';
 import { rig, timeUniform } from './materials.ts';
 import { gradedRadiance, lerpSH, projectSH, type SH9 } from '../logic/sh-light.ts';
 
@@ -55,11 +61,14 @@ function groundShade(place: (typeof PLACES)[PlaceId]): number {
   return typeof v === 'number' ? Math.max(0, Math.min(1, v)) : GROUND_SHADE;
 }
 
-/** Places prepared in advance, besides the current one (6 MiB of GPU memory each on Quest). */
+/** Places prepared in advance, besides the current one (6 MiB each on Quest in 6k ETC1S, 21.3 MiB in 8k UASTC). */
 const PREPARED_MAX = 2;
 
-/** Projection of a loaded panorama: 1 = equal-area KTX2 (row 0 = zenith), 0 = equirectangular JPG (flipY). */
-type Loaded = { texture: Texture; equalArea: boolean; gpuBytes: number };
+/**
+ * Projection of a loaded panorama: 1 = equal-area KTX2 (row 0 = zenith), 0 = equirectangular JPG (flipY).
+ * hd: the 8k version (photoHd) is the one on the GPU.
+ */
+type Loaded = { texture: Texture; equalArea: boolean; gpuBytes: number; hd: boolean };
 
 type Ktx2 = NonNullable<ReturnType<typeof ktx2Loader>>;
 
@@ -81,10 +90,28 @@ export class PlaceBackdrop {
   private readonly radiance = new Map<PlaceId, Float32Array>();
   private readonly shCache = new Map<PlaceId, { key: string; sh: SH9 }>();
   private readonly loading = new Map<PlaceId, Promise<Loaded | null>>();
+  private readonly loadingHd = new Map<PlaceId, Promise<Loaded | null>>();
+  /** HD decided once per GPU (null: not yet); `hdForced` overrides it for tests (?hd=0 / __wdd.hd()). */
+  private hd: { ok: boolean; why: string } | null = null;
+  hdForced: boolean | null = (() => {
+    try {
+      const v = new URLSearchParams(location.search).get('hd');
+      return v === '0' ? false : v === '1' ? true : null;
+    } catch {
+      return null;
+    }
+  })();
   private renderer: WebGLRenderer | null = null;
   private ktx2: Promise<Ktx2 | null> | null = null;
-  /** Format the GPU received for the last KTX2 panorama (for the perf report). */
+  /** Format the GPU received for the last KTX2 panorama, and how long its upload blocked (perf report). */
   lastFormat = '';
+  lastUploadMs = 0;
+  /** Play-test timeline of the last preparations (performance.now() ms, step). */
+  readonly prepTimeline: Array<[number, string]> = [];
+  private mark(step: string): void {
+    this.prepTimeline.push([Math.round(performance.now()), step]);
+    if (this.prepTimeline.length > 40) this.prepTimeline.shift();
+  }
   private from: PlaceId = 'room';
   private to: PlaceId = 'room';
   private progress = 1;
@@ -339,11 +366,26 @@ export class PlaceBackdrop {
   async prepare(id: PlaceId): Promise<boolean> {
     const place = PLACES[id];
     this.measure(id);
-    if (id === this.to || (place.photo == null && place.fallback == null)) return true;
-    const loaded = await this.load(id);
+    if (place.photo == null && place.fallback == null) return true;
+    const wantHd = this.wantsHd(id);
+    if (id === this.to && !this.needsHd(id)) return true;
+    // HD first (calm moment: 8–10 MB, transcoded in the loader's worker); the 6k ETC1S if HD is off or fails.
+    this.mark(`prepare ${id}${wantHd ? ' hd' : ''}`);
+    let loaded = wantHd ? await this.loadHd(id) : null;
+    this.mark('loaded');
+    if (loaded == null) {
+      if (id === this.to) return true;
+      loaded = await this.load(id);
+    }
     if (loaded == null) return false;
     // The upload happens now (a calm moment), not on the first frame of the crossfade.
+    const t0 = performance.now();
     this.renderer?.initTexture(loaded.texture);
+    this.lastUploadMs = Math.round(performance.now() - t0);
+    this.mark('uploaded');
+    if (loaded.hd) this.install(id, loaded);
+    this.mark('installed');
+    if (id === this.to || id === this.from) return true;
     if (!this.prepared.includes(id)) this.prepared.push(id);
     while (this.prepared.length > PREPARED_MAX) {
       const old = this.prepared.shift();
@@ -354,6 +396,45 @@ export class PlaceBackdrop {
 
   get preparedPlaces(): readonly PlaceId[] {
     return this.prepared;
+  }
+
+  /** HD on this GPU (decided at the first question, once the renderer is known). */
+  hdStatus(): { ok: boolean; why: string } {
+    if (this.hdForced != null) return { ok: this.hdForced, why: 'forced' };
+    if (this.hd == null) {
+      const r = this.renderer;
+      if (r == null) return { ok: false, why: 'no renderer yet' };
+      this.hd = hdSupport(r.capabilities.maxTextureSize, (e) => r.extensions.has(e));
+    }
+    return this.hd;
+  }
+
+  private wantsHd(id: PlaceId): boolean {
+    return PLACES[id].photoHd != null && this.hdStatus().ok;
+  }
+
+  /** The place is shown (or prepared) in 6k while its 8k could be: upgrade it in the next calm moment. */
+  needsHd(id: PlaceId): boolean {
+    const loaded = this.textures.get(id);
+    return loaded != null && !loaded.hd && loaded.equalArea && this.wantsHd(id);
+  }
+
+  /** Is the place on the GPU in 8k? (play-test report) */
+  isHd(id: PlaceId): boolean {
+    return this.textures.get(id)?.hd === true;
+  }
+
+  /** Puts an 8k texture in place of the 6k one — same image, same frame: only the sharpness changes. */
+  private install(id: PlaceId, loaded: Loaded): void {
+    const old = this.textures.get(id);
+    this.textures.set(id, loaded);
+    this.loading.set(id, Promise.resolve(loaded));
+    const u = this.material.uniforms;
+    if (old != null && old.texture !== loaded.texture) {
+      if (u.uTexA.value === old.texture) u.uTexA.value = loaded.texture;
+      if (u.uTexB.value === old.texture) u.uTexB.value = loaded.texture;
+      old.texture.dispose();
+    }
   }
 
   private release(id: PlaceId): void {
@@ -467,7 +548,7 @@ export class PlaceBackdrop {
     }
     const place = PLACES[id];
     const promise = (async (): Promise<Loaded | null> => {
-      let loaded = place.photo != null && place.photo.endsWith('.ktx2') ? await this.loadKtx2(place.photo) : null;
+      let loaded = place.photo != null && place.photo.endsWith('.ktx2') ? await this.loadKtx2(place.photo, false) : null;
       if (loaded == null && place.fallback != null) {
         loaded = await this.loadJpg(place.fallback);
       }
@@ -482,6 +563,20 @@ export class PlaceBackdrop {
     return promise;
   }
 
+  /** The 8k panorama (calm moments only). Null if absent, refused, or not compressed on this GPU. */
+  private loadHd(id: PlaceId): Promise<Loaded | null> {
+    const existing = this.loadingHd.get(id);
+    if (existing != null) return existing;
+    const url = PLACES[id].photoHd;
+    if (url == null) return Promise.resolve(null);
+    const promise = this.loadKtx2(url, true).then((loaded) => {
+      this.loadingHd.delete(id);
+      return loaded;
+    });
+    this.loadingHd.set(id, promise);
+    return promise;
+  }
+
   private ktx2Loader(): Promise<Ktx2 | null> {
     if (this.ktx2 == null) {
       this.ktx2 = (async () => {
@@ -493,7 +588,7 @@ export class PlaceBackdrop {
     return this.ktx2;
   }
 
-  private async loadKtx2(url: string): Promise<Loaded | null> {
+  private async loadKtx2(url: string, hd: boolean): Promise<Loaded | null> {
     const loader = await this.ktx2Loader();
     if (loader == null) return null;
     try {
@@ -508,8 +603,14 @@ export class PlaceBackdrop {
       texture.wrapS = RepeatWrapping;
       const level = (texture as Texture & { mipmaps?: Array<{ data: ArrayBufferView }> }).mipmaps?.[0];
       const format = String((texture as Texture & { format: unknown }).format);
+      if (hd && (texture as Texture & { isCompressedTexture?: boolean }).isCompressedTexture !== true) {
+        // Decoded to raw RGBA (no compressed target): 89 MB. Never; this GPU stays in 6k from now on.
+        texture.dispose();
+        this.hd = { ok: false, why: `UASTC arrived uncompressed (format ${format})` };
+        return null;
+      }
       this.lastFormat = format;
-      return { texture, equalArea: true, gpuBytes: level?.data.byteLength ?? 0 };
+      return { texture, equalArea: true, gpuBytes: level?.data.byteLength ?? 0, hd };
     } catch {
       return null;
     }
@@ -526,7 +627,7 @@ export class PlaceBackdrop {
           texture.magFilter = LinearFilter;
           texture.wrapS = RepeatWrapping;
           const img = texture.image as { width: number; height: number };
-          resolve({ texture, equalArea: false, gpuBytes: img.width * img.height * 4 });
+          resolve({ texture, equalArea: false, gpuBytes: img.width * img.height * 4, hd: false });
         },
         undefined,
         () => resolve(null),
