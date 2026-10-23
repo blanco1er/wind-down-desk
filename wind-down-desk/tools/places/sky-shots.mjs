@@ -40,7 +40,8 @@ export default async function run({ frame, page, cdp }) {
     await shot(name);
     out.push({ name, ...(await f.evaluate(() => ({ k: window.__wdd.debug().visuals.keepsakes.shown, sky: window.__wdd.debug().visuals.skyShown }))) });
   }
-  await pose(10, -20, 30);
+  // Wide enough for the milestone line beside the globe (the 30° close-up cut it: framing, not the app).
+  await pose(-6, -21, 40);
   await wait(400);
   await shot('d-closeup');
   // Look at the keepsakes (desk-local spot behind the tray's back-left corner), close.

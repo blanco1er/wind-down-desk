@@ -398,6 +398,38 @@ export class PlaceBackdrop {
     return this.prepared;
   }
 
+  /**
+   * 26 Oct (adaptive quality): the 8k places off (or back on). Off: prepared 8k places are released (they come back
+   * as 6k when prepared again) and the place you are in swaps to its 6k in place (same image, a little softer).
+   */
+  setHdAllowed(on: boolean): void {
+    if (on) {
+      if (this.hdForced === false) this.hdForced = null;
+      return;
+    }
+    this.hdForced = false;
+    for (const id of [...this.prepared]) {
+      if (this.textures.get(id)?.hd === true && id !== this.to && id !== this.from) {
+        this.prepared.splice(this.prepared.indexOf(id), 1);
+        this.release(id);
+      }
+    }
+    for (const id of [this.to, this.from]) {
+      if (this.textures.get(id)?.hd !== true) continue;
+      this.loading.delete(id);
+      const place = PLACES[id];
+      if (place.photo == null) continue;
+      void this.loadKtx2(place.photo, false).then((low) => {
+        if (low == null || this.textures.get(id)?.hd !== true) {
+          low?.texture.dispose();
+          return;
+        }
+        this.renderer?.initTexture(low.texture);
+        this.install(id, low);
+      });
+    }
+  }
+
   /** HD on this GPU (decided at the first question, once the renderer is known). */
   hdStatus(): { ok: boolean; why: string } {
     if (this.hdForced != null) return { ok: this.hdForced, why: 'forced' };

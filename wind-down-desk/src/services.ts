@@ -7,21 +7,38 @@ import { RitualMemory, type KeyValueStore } from './logic/memory.ts';
 import { readStyle, writeStyle, type EveningStyle } from './logic/style.ts';
 import { VoiceInput } from './voice/mic.ts';
 
+let probed: { store: KeyValueStore | null } | null = null;
+/**
+ * The page's storage if it works (private mode: null). Probed ONCE (26 Oct, CPU pass: `style.quiet` is read every
+ * frame, and the probe wrote to localStorage each time — a synchronous write per frame on the headset).
+ */
 function safeStorage(): KeyValueStore | null {
+  if (probed != null) return probed.store;
   try {
     const probe = '__wdd_probe__';
     window.localStorage.setItem(probe, '1');
     window.localStorage.removeItem(probe);
-    return window.localStorage;
+    probed = { store: window.localStorage };
   } catch {
-    return null;
+    probed = { store: null };
   }
+  return probed.store;
+}
+
+/**
+ * Play-test clock (26 Oct, stability pass): film.day(n) puts the memory's clock at 21:30, n days from today, so
+ * several evenings chain in one emulator session whatever the real hour. Off (the real time) for everyone else;
+ * only the memory's date uses it.
+ */
+export const testClock = { on: false, base: 0, setAt: 0 };
+function memoryNow(): Date {
+  return testClock.on ? new Date(testClock.base + (Date.now() - testClock.setAt)) : new Date();
 }
 
 export const services = {
   agent: new AgentClient(),
   voice: new VoiceInput(),
-  memory: new RitualMemory(safeStorage()),
+  memory: new RitualMemory(safeStorage(), memoryNow),
   /** Talk with the lamp, or a quiet evening (touch only, no microphone). Null until chosen once. */
   style: {
     get(): EveningStyle | null {

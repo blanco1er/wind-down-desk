@@ -31,7 +31,7 @@ import {
 import type { DeskFrame } from '../logic/desk-layout.ts';
 import type { PlaneCandidate } from '../logic/placement.ts';
 import { deskPlacedListeners } from '../systems/ritual-system.ts';
-import { services } from '../services.ts';
+import { services, testClock } from '../services.ts';
 import { placeListeners } from './environment.ts';
 import { TRAY } from './geometry.ts';
 import { RIG, RIG_UNIFORMS, rig } from './materials.ts';
@@ -250,6 +250,14 @@ export function mountFilmSet(world: World): void {
       return { rotation: options.rotation, exposure: roomMaterial.uniforms.uExposure.value };
     },
     /** Film only: weeks of evenings in memory (the sky that grows, the streak). Then re-place the desk. */
+    /** Stability pass: this evening happens N days later (chains evenings in one emulator session). */
+    day: (n: number) => {
+      const d = new Date();
+      d.setHours(21, 30, 0, 0);
+      d.setDate(d.getDate() + Math.max(0, Math.min(400, Math.round(n))));
+      Object.assign(testClock, { on: true, base: d.getTime(), setAt: Date.now() });
+      return d.toString();
+    },
     history: (evenings: number) => {
       services.memory.seedHistory(evenings);
       return { streak: services.memory.streak(), stars: services.memory.totalLetGo() };

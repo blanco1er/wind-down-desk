@@ -167,6 +167,13 @@ export class LampSpirit {
     this.mesh.raycast = () => {};
   }
 
+  /** 26 Oct (adaptive quality): share of the motes drawn (the halo stays); 0 hides the aura (safe mode). */
+  setDensity(k: number): void {
+    const motes = Math.round(MOTES * Math.max(0, Math.min(1, k)));
+    this.mesh.geometry.setDrawRange(0, (1 + motes) * 6);
+    this.mesh.visible = k > 0;
+  }
+
   /** `lookLocal`: direction to your eyes in the globe's own space. */
   update(s: SpiritState, lookLocal: Vector3): void {
     const u = this.uniforms;

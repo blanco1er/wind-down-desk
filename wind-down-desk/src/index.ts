@@ -16,12 +16,13 @@ import { planLanding } from './logic/xr-support.ts';
 import { mountOverlay } from './overlay.ts';
 import { PerfBeginSystem, PerfEndSystem } from './systems/perf-system.ts';
 import { RitualSystem } from './systems/ritual-system.ts';
-import { trackPage, track } from './visits.ts';
+import { trackPage } from './visits.ts';
+import { installGuard, watchContext } from './runtime-guard.ts';
 
 // Anonymous visit steps (production build only; never words or voice: src/visits.ts).
 trackPage();
-addEventListener('error', () => track('client-error', { where: 'window' }, 'client-error'));
-addEventListener('unhandledrejection', () => track('client-error', { where: 'promise' }, 'client-rejection'));
+// 26 Oct (safety nets): safe mode, memory floor, anonymous error reports (type + cleaned message) — before anything.
+installGuard();
 // Accessibility settings: reachable from the first second, before the scene is drawn (and by voice in the headset).
 mountAccessPanel();
 
@@ -42,6 +43,14 @@ const planned = Promise.all([loadFonts(), probeXr()]).then(async ([, probe]) => 
 void planned
   .then(async (landing) => ({ landing, world: await World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions) }))
   .then(({ landing, world }) => {
+  // A lost GPU context: reported, counted toward safe mode, said plainly, then a clean reload.
+  watchContext(world.renderer.domElement, () => {
+    const note = document.createElement('div');
+    note.textContent = 'The display was interrupted. Coming back in a moment…';
+    note.setAttribute('role', 'status');
+    note.style.cssText = 'position:fixed;left:50%;top:24px;transform:translateX(-50%);padding:12px 18px;border-radius:14px;background:rgba(20,18,16,.86);color:#fff;font:15px system-ui;z-index:99';
+    document.body.appendChild(note);
+  });
   world
     .registerSystem(PerfBeginSystem, { priority: -100 })
     .registerSystem(RitualSystem, { priority: 10 })

@@ -184,13 +184,17 @@ export class AgentClient {
     return this.local.talkStream(input, onSentence);
   }
 
+  /** 26 Oct (safety nets): how the last transcription went (no server at all, a failure, or fine). */
+  lastTranscribe: 'ok' | 'failed' | 'no-server' = 'ok';
+
   /** Server-side transcription. Returns null when no server is reachable. */
   async transcribe(audio: Blob): Promise<string | null> {
     if (this.status.mode !== 'server') {
+      this.lastTranscribe = 'no-server';
       return null;
     }
     try {
-      return await withTimeout(12_000, async (signal) => {
+      const text = await withTimeout(12_000, async (signal) => {
         const res = await fetch(`${API}/transcribe`, {
           method: 'POST',
           signal,
@@ -202,7 +206,10 @@ export class AgentClient {
         }
         return ((await res.json()) as { text: string }).text;
       });
+      this.lastTranscribe = 'ok';
+      return text;
     } catch {
+      this.lastTranscribe = 'failed';
       return null;
     }
   }

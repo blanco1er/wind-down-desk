@@ -25,6 +25,7 @@ import {
   RayInteractable,
   Vector2,
   Vector3,
+  SceneUnderstandingSystem,
   Vector4,
   VisibilityState,
   XRMesh,
@@ -51,6 +52,8 @@ import { GhostHand, HandLook } from '../desk/hands.ts';
 import { followUpQuestion, starPosition, type Recall } from '../logic/memory.ts';
 import { figureFor, isSkyCommand, KEEPSAKE, MILESTONES, milestoneLine, milestoneToCelebrate, plantGrowth, type Milestone } from '../logic/milestones.ts';
 import { KEEPSAKE_AT } from '../desk/keepsakes.ts';
+import { guard } from '../runtime-guard.ts';
+import type { QualityLevel } from '../logic/quality.ts';
 import { fallbackFrame, frameOnTable, type HeadPose, type PlaneCandidate } from '../logic/placement.ts';
 import { chooseSurface, meshTop, type MeshBox, type SurfaceChoice } from '../logic/surfaces.ts';
 import { bearingCaption, bearingOf, decideAfterRestore, type Bearing, type PlaceSource, type RestoreDecision } from '../logic/desk-anchor.ts';
@@ -423,6 +426,19 @@ export class RitualSystem extends createSystem({
     });
     this.queries.hovered.subscribe('disqualify', (entity) => this.visuals.setHover(String(entity.getValue(DeskButton, 'action')), false));
 
+    // 26 Oct (stability pass): every desk shader compiled now, while the table is being found — not on the first
+    // frame of the desk (≈ 200 ms stall at each arrival, measured).
+    this.visuals.precompile([new Mesh(this.stoneShapes[0].geometry, this.stoneMaterialProto)]);
+    // In the headset the renderer builds its XR variants of the programs: compiled again as the session starts,
+    // while the table is being found (the desk is not shown yet), never on the frame the desk appears.
+    this.renderer.xr.addEventListener('sessionstart', () => {
+      window.setTimeout(() => this.visuals.precompile([new Mesh(this.stoneShapes[0].geometry, this.stoneMaterialProto)]), 50);
+      // 26 Oct (safety nets): what the hands are, 6 s in (hand tracking can take a moment to appear).
+      window.setTimeout(() => this.checkInputs(), 6000);
+    });
+    // 26 Oct (safety nets): the adaptive quality (and safe mode) applied quietly to the aura, the light dust, the
+    // 8k places and the living layers.
+    guard.onQuality((_level, knobs) => this.visuals.applyQuality(knobs));
     services.voice.onUtterance = (clip) => void this.onClip(clip);
     services.voice.onState = (state) => {
       track('mic', { state: String(state) }, `mic:${String(state)}`);
@@ -513,6 +529,7 @@ export class RitualSystem extends createSystem({
     this.offscreenCueAt = -1;
     this.lastBearing = null;
     this.deskAnchor.start(session, this.elapsed);
+    this.sceneUnderstanding(true);
     if (session != null) {
       this.selectSession = session;
       session.addEventListener('selectstart', this.onSelect as EventListener);
@@ -542,7 +559,19 @@ export class RitualSystem extends createSystem({
    * you sit now; stones follow the desk; the new place replaces the remembered one. No plane or volume here →
    * the hit-test probe gets up to 1.5 s, then the floating desk.
    */
+  /**
+   * 26 Oct (CPU pass): IWSDK's plane / mesh tracking runs only while the table is being looked for (arrival, "move
+   * my desk"); once the desk has been placed for 8 s it is paused (≈ 0.5 ms per frame at ×6 CPU, measured).
+   */
+  private sceneUnderstanding(on: boolean): void {
+    const system = this.world.getSystem(SceneUnderstandingSystem) as { play(): void; stop(): void; isPaused: boolean } | undefined;
+    if (system == null) return;
+    if (on && system.isPaused) system.play();
+    if (!on && !system.isPaused) system.stop();
+  }
+
   recenter(quiet = false): void {
+    this.sceneUnderstanding(true);
     if (this.placementMode === 'preview') {
       return;
     }
@@ -710,6 +739,11 @@ export class RitualSystem extends createSystem({
     this.placementMode = mode;
     this.placeSource = source;
     track('placed', { source, mode }, 'placed');
+    const placedAt = this.elapsed;
+    this.lastPlacedAt = placedAt;
+    window.setTimeout(() => {
+      if (this.lastPlacedAt === placedAt && this.frame != null) this.sceneUnderstanding(false);
+    }, 8000);
     if (source === 'anchor') track('anchor-restored', { bearing: this.lastBearing ?? 'ahead' }, 'anchor-restored');
     this.placedOn = plane == null ? null : { label: plane.label, y: +plane.center.y.toFixed(3), halfX: +plane.halfX.toFixed(2), halfZ: +plane.halfZ.toFixed(2), hits: source === 'hit' ? this.probe.recent().map((h) => [+h.x.toFixed(2), +h.y.toFixed(3), +h.z.toFixed(2), +h.up.toFixed(2)]) : undefined };
     this.probe.stop();
@@ -749,6 +783,30 @@ export class RitualSystem extends createSystem({
       return;
     }
     this.propose(null, `${where.length > 0 ? `${where} ` : ''}${recall.sentence ?? services.memory.welcomeLine()}`);
+  }
+
+  /**
+   * 26 Oct (safety nets): no tracked hands 6 s into the session. Controllers present → they work (ray + trigger:
+   * IWSDK's own input), said once. Nothing at all → gaze-only selection turns on, and the lamp says how to go on
+   * (look and wait, or speak). Counted anonymously (hands / controllers / none).
+   */
+  private checkInputs(): void {
+    const session = this.renderer.xr.getSession();
+    if (session == null) return;
+    const sources = [...session.inputSources];
+    const hands = sources.some((s) => s.hand != null);
+    const controllers = sources.some((s) => s.hand == null && s.gamepad != null && s.targetRayMode === 'tracked-pointer');
+    const kind = hands ? 'hands' : controllers ? 'controllers' : 'none';
+    track('input', { kind }, `input:${kind}`);
+    if (hands) return;
+    if (controllers) {
+      this.flash('Your controllers work too: point, and pull the trigger.', 5);
+      return;
+    }
+    if (!this.access.gazeSelect) {
+      this.access = services.access.set({ gazeSelect: true });
+    }
+    this.flash('No hands seen. Look at something and hold your gaze, or just speak.', 6);
   }
 
   /**
@@ -1170,11 +1228,29 @@ export class RitualSystem extends createSystem({
 
   // ------------------------------------------------------------ voice + agent
 
+  /** 26 Oct (safety nets): words that could not be turned into text in a row (the server or the network down). */
+  private sttMisses = 0;
+  private lastPlacedAt = -1;
+  private sttToldAt = -1e9;
+
   private async onClip(clip: Blob): Promise<void> {
     services.voice.level = 0;
     const text = await services.agent.transcribe(clip);
     if (text != null && text.trim().length > 0) {
+      this.sttMisses = 0;
       await this.handleUtterance(text);
+      return;
+    }
+    // Nobody ever hears silence back: two clips lost in a row (or no server at all) → the lamp says so, plainly,
+    // and the hands take over (the ritual menu opens). Once every 2 minutes at most; counted anonymously.
+    const state = services.agent.lastTranscribe;
+    if (state === 'ok') return;
+    this.sttMisses++;
+    if ((state === 'no-server' || this.sttMisses >= 2) && this.elapsed - this.sttToldAt > 120) {
+      this.sttToldAt = this.elapsed;
+      track('voice-down', { why: state }, `voice-down:${state}`);
+      this.flash('I can’t hear words right now. Your hands do everything: touch the lamp’s menu.', 5);
+      if (this.mode === 'choose') this.openRitualMenu(true);
     }
   }
 
@@ -1530,6 +1606,9 @@ export class RitualSystem extends createSystem({
     this.exampleUsed = true;
     this.cue('orb-on', this.orbLocal());
     this.heardLine = 'Example evening';
+    // 26 Oct (cold judge): the microphone was refused — say why an example appears (it used to appear silently).
+    const mic = services.voice.state;
+    if (mic === 'denied' || mic === 'unavailable') this.flash('No microphone: here is an example evening. Your hands do the rest.', 5, '', false);
     void this.extract(DEMO_BRAIN_DUMP);
   }
 
@@ -1819,6 +1898,11 @@ export class RitualSystem extends createSystem({
   private endCurrentRitual(): void {
     if (this.mode === 'talk') {
       // Another ritual chosen mid-talk: the lamp stops speaking; the stones of what weighs stay on the desk.
+      // 26 Oct (stability pass): a talk the person had already closed ("that's all") still counts as done.
+      if (this.talk?.closing === true && this.talk.turns.length > 0) {
+        track('ritual-done', { kind: 'talk' }, 'ritual-done:talk');
+        services.memory.recordRitual('talk');
+      }
       this.tts?.stop();
       this.talk = null;
     }
@@ -3688,6 +3772,18 @@ export class RitualSystem extends createSystem({
       living: () => this.visuals.living.debug(),
       /** Axe 5: the panorama's ground projected on the real ground (motion parallax, stereo) — on/off for A/B. */
       groundParallax: (on: boolean) => this.visuals.living.setGroundParallax(on),
+      /** Safety nets: force a quality level (null: the governor decides again) and read the governor. */
+      quality: (level?: QualityLevel | null) => {
+        if (level !== undefined) {
+          guard.forced = level;
+          if (level != null) guard.setLevel(level, 'forced');
+        }
+        return { level: guard.level, floor: guard.floor, safe: guard.safe, forced: guard.forced, governor: guard.governor?.last ?? null, knobs: guard.knobs(), hdPlaces: this.visuals.backdrop.hdStatus() };
+      },
+      /** The short message shown now over the phase caption (play-test checks). */
+      caption: () => ({ flash: this.captionOverride != null && this.captionOverride.until > this.elapsed ? this.captionOverride.text : null }),
+      /** Safety nets: the input check, as at 6 s into the session. */
+      checkInputs: () => this.checkInputs(),
       /** Lot 2b: show the sky now (as asked by voice), and the state of the keepsakes on the table. */
       sky: (fresh = false) => {
         this.showSky(fresh);

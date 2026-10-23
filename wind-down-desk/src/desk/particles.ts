@@ -128,7 +128,12 @@ export class LightField {
    * Warm dust rising from a small area (a dissolving stone). `spread` is the
    * radius of the emitting disc; `lift` scales the rise.
    */
+  /** 26 Oct (adaptive quality): share of the sparks and dust emitted (0..1); the stars of the sky are kept. */
+  density = 1;
+
   emit(x: number, y: number, z: number, count: number, spread = 0.035, lift = 1): void {
+    count = this.density >= 1 ? count : Math.round(count * this.density + (Math.random() < (count * this.density) % 1 ? 1 : 0));
+    if (count <= 0) return;
     const now = timeUniform.value;
     for (let i = 0; i < count; i++) {
       const slot = STAR_SLOTS + this.nextBurst;

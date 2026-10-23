@@ -65,6 +65,8 @@ interface Built {
   fire: Campfire | null;
   clock: WaveClock | null;
   star: Mesh | null;
+  /** 26 Oct (adaptive quality): what 'simple' hides — snow, fireflies, sparks, the shooting star. */
+  light: Object3D[];
 }
 
 export class LivingPlaces {
@@ -234,6 +236,7 @@ export class LivingPlaces {
     };
     if (life.snow != null) {
       const snow = createSnow(life.snow, this.shared);
+      snow.userData.livingKind = 'particles';
       root.add(snow);
       meshes.push(snow);
       // A soft, muffled wind outside the two side windows.
@@ -277,6 +280,7 @@ export class LivingPlaces {
     }
     if (life.fireflies != null) {
       const ff = createFireflies(life.fireflies, this.shared);
+      ff.userData.livingKind = 'particles';
       root.add(ff);
       meshes.push(ff);
     }
@@ -292,7 +296,11 @@ export class LivingPlaces {
       this.root.add(star);
     }
     sound.setLoops(loops);
-    const b: Built = { id, life, root, meshes, sound, fire, clock, star };
+    const light: Object3D[] = [];
+    for (const m of meshes) if (m.userData.livingKind === 'particles') light.push(m);
+    if (fire != null) light.push(fire.sparks);
+    if (star != null) light.push(star);
+    const b: Built = { id, life, root, meshes, sound, fire, clock, star, light };
     this.built.set(id, b);
     this.place(b);
     root.visible = false;
@@ -311,6 +319,25 @@ export class LivingPlaces {
     const now = this.now();
     (fireUniforms.uFireBurst.value as Vector4).z = now;
     this.crackle(1, true);
+  }
+
+  private level: 'full' | 'simple' | 'off' = 'full';
+
+  /** 26 Oct (adaptive quality / safe mode): full, simple (no snow, fireflies, sparks, shooting star), or off. */
+  setLevel(level: 'full' | 'simple' | 'off'): void {
+    this.level = level;
+    // Back to full: what 'simple' hid comes back (the shooting star keeps its own timing).
+    if (level === 'full') for (const b of this.built.values()) for (const o of b.light) if (o !== b.star) o.visible = true;
+  }
+
+  /** After update(): hides what the level saves (sounds go on; the photo stays as it is). */
+  enforceLevel(): void {
+    if (this.level === 'full') return;
+    if (this.level === 'off') {
+      this.root.visible = false;
+      return;
+    }
+    for (const b of this.built.values()) for (const o of b.light) o.visible = false;
   }
 
   setGoodNight(on: boolean): void {

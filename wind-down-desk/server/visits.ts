@@ -15,6 +15,7 @@
  * - Own devices and scripts: header x-wdd-internal: 1, or the page opened once with ?internal=1 → flagged "internal".
  * - Off entirely with WDD_VISITS=off.
  */
+import { cleanErrorMessage } from '../src/logic/error-report.ts';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { appendFile, mkdir } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
@@ -55,7 +56,16 @@ export const EVENTS: Record<string, readonly string[]> = {
   mic: ['state'],
   style: ['style'],
   goodnight: ['secs'],
-  'client-error': ['where'],
+  /** 26 Oct (safety nets): where (window / promise / …), the error's type, a short CLEANED message (re-cleaned here). */
+  'client-error': ['where', 'type', 'msg'],
+  /** 26 Oct: the frame governor stepped the quality (0–3), safe mode on (why), a lost GPU context (bad starts),
+   * what the hands are (hands / controllers / none). */
+  quality: ['level'],
+  'safe-mode': ['why'],
+  'gl-lost': ['bad'],
+  input: ['kind'],
+  /** 26 Oct: speech could not be turned into text (failed / no-server): the hands took over. */
+  'voice-down': ['why'],
   leave: ['secs', 'step'],
 };
 
@@ -79,6 +89,13 @@ export function uaFamily(ua: string): { dev: string; br: string; bot: boolean } 
 }
 
 /** Only short, plain values survive: a site name, an id, a number. */
+/** An error message from a client: cleaned again here (never trust the page), 80 characters at most. */
+export function cleanMsg(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length === 0) return null;
+  const s = cleanErrorMessage(v);
+  return s.length > 0 ? s : null;
+}
+
 export function cleanValue(v: unknown): string | number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v * 10) / 10 : null;
   if (typeof v !== 'string') return null;
@@ -136,7 +153,7 @@ export class VisitLog {
     const data: Record<string, string | number> = {};
     const raw = b.d != null && typeof b.d === 'object' ? (b.d as Record<string, unknown>) : {};
     for (const key of allowed) {
-      const value = key === 'ref' ? refSite(raw[key]) : cleanValue(raw[key]);
+      const value = key === 'ref' ? refSite(raw[key]) : key === 'msg' ? cleanMsg(raw[key]) : cleanValue(raw[key]);
       if (value != null) data[key] = value;
     }
     const event: VisitEvent = { t: now.toISOString(), e: name, v: this.visitorId(ip, ua), dev: fam.dev, br: fam.br };

@@ -52,6 +52,7 @@ import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawGlobeBut
 import { PlacePreviews } from './place-preview.ts';
 import { Keepsakes } from './keepsakes.ts';
 import { FIG_MAX } from './materials.ts';
+import type { QualityKnobs } from '../logic/quality.ts';
 import { RITUAL_MENU, type RitualKind } from '../logic/evening.ts';
 import { createMoonGeometry } from './ritual-geometry.ts';
 
@@ -881,6 +882,50 @@ export class DeskVisuals {
   }
 
   /** Crossfades to a place; the desk light follows. Resolves false if the photo could not load. */
+  /** 26 Oct (safety nets): the adaptive quality's knobs (logic/quality.ts), applied quietly. */
+  applyQuality(k: QualityKnobs): void {
+    this.spirit.setDensity(k.aura);
+    this.lights.density = k.dust;
+    this.backdrop.setHdAllowed(k.hd);
+    this.living.setLevel(k.living);
+  }
+
+  /**
+   * 26 Oct (stability pass): every desk shader compiled before the desk first appears, while the table is being
+   * found. The first frame of the desk used to compile ≈ 17 programs at once (a ≈ 200 ms stall at each arrival).
+   * Hidden things (menus, the moon, the keepsakes) are shown for this synchronous call only; `extra` adds meshes
+   * that do not exist yet (a stone).
+   */
+  precompile(extra: Mesh[] = []): void {
+    const hidden: Array<{ visible: boolean }> = [];
+    for (const m of extra) this.root.add(m);
+    // The whole scene, not only the desk: the hands, the rain, the ghost hand, the dwell ring live beside it.
+    this.prepScene.traverse((o) => {
+      if (!o.visible) {
+        hidden.push(o);
+        o.visible = true;
+      }
+    });
+    void this.prepRenderer.compileAsync(this.prepScene, this.prepCamera).catch(() => {});
+    // Their textures too (the oak, its normal map, the engraved labels, the cards): uploaded now, not at the reveal.
+    const seen = new Set<unknown>();
+    this.prepScene.traverse((o) => {
+      const mats = (o as Mesh).material;
+      for (const m of Array.isArray(mats) ? mats : mats != null ? [mats] : []) {
+        const uniforms = (m as { uniforms?: Record<string, { value: unknown }> }).uniforms ?? {};
+        for (const u of Object.values(uniforms)) {
+          const t = u?.value as { isTexture?: boolean } | null;
+          if (t?.isTexture === true && !seen.has(t)) {
+            seen.add(t);
+            this.prepRenderer.initTexture(t as Texture);
+          }
+        }
+      }
+    });
+    for (const o of hidden) o.visible = false;
+    for (const m of extra) this.root.remove(m);
+  }
+
   /** 25 Oct: prepares a place in advance (panorama on the GPU, living layer compiled, sounds fetched). */
   async preparePlace(id: PlaceId): Promise<boolean> {
     const ok = await this.backdrop.prepare(id);
@@ -1223,6 +1268,7 @@ export class DeskVisuals {
     this.backdrop.update(dt);
     this.rain.update(dt);
     this.living.update(dt);
+    this.living.enforceLevel();
     // v6: the bowls slide into the tray for Breathe and Release (≈ 1.2 s), and come back.
     m.uBowlsAway.value = approach(m.uBowlsAway.value, this.bowlsAwayTarget, 2.6, dt);
     if (Math.abs(m.uBowlsAway.value - this.bowlsAwayTarget) < 0.002) m.uBowlsAway.value = this.bowlsAwayTarget;
@@ -1293,6 +1339,8 @@ export class DeskVisuals {
     // menu by the lamp pushes the caption left; in a place the caption rises a little over the immersion switch.
     const menuK = Math.max(0, Math.min(1, this.menuSpring.value));
     cap.value *= 1 - Math.min(1, menuK * 2.5);
+    // 26 Oct (stability pass, draw budget): a caption faded out is not drawn at all (it cost a draw per eye).
+    this.caption.visible = cap.value > 0.004;
     this.asideSpring.target = this.ritualsOpen ? 1 : 0;
     const aside = this.asideSpring.step(dt, 150, 24);
     this.caption.scale.setScalar(this.textK * (1 - (1 - CAPTION_ASIDE_SCALE) * Math.max(0, Math.min(1, aside))));
@@ -1382,12 +1430,15 @@ export class DeskVisuals {
     this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal;
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.
     this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6) && this.ritualModalK < 0.95;
-    this.ritualsOrnament.visible = !this.ornamentsHidden;
-    this.voiceButton.visible = !this.ornamentsHidden && this.ritualModalK < 0.95;
+    // 26 Oct (stability pass, draw budget): the lamp showing the places is modal too — Rituals and Sound step away
+    // (× and the voice close it), two draws per eye saved: 23 per eye with the globe open.
+    const globeModal = 1 - this.globeK;
+    this.ritualsOrnament.visible = !this.ornamentsHidden && this.globeK < 0.95;
+    this.voiceButton.visible = !this.ornamentsHidden && this.ritualModalK < 0.95 && this.globeK < 0.95;
     this.ornamentUniforms.uHighlight.value = placesHover;
     this.ornament.scale.setScalar((1 + 0.06 * placesHover) * (1 - 0.12 * Math.min(1, menu)));
     const voiceHover = this.hover.voice.step(dt);
-    this.voiceUniforms.uOpacity.value = ornamentOpacity * modal;
+    this.voiceUniforms.uOpacity.value = ornamentOpacity * modal * globeModal;
     this.voiceUniforms.uHighlight.value = voiceHover;
     this.voiceButton.scale.setScalar(1 + 0.06 * voiceHover);
     const keepHover = this.hover.keep.step(dt);
@@ -1530,9 +1581,43 @@ export class DeskVisuals {
       else if (this.ritualsOpen && rm > 0.02) chip.mesh.visible = true;
     });
     const ritualsHover = this.hover.rituals.step(dt);
-    this.ritualsUniforms.uOpacity.value = ornamentOpacity;
+    this.ritualsUniforms.uOpacity.value = ornamentOpacity * (1 - this.globeK);
     this.ritualsUniforms.uHighlight.value = ritualsHover;
     this.ritualsOrnament.scale.setScalar(1 + 0.06 * ritualsHover);
     this.lights.flush();
+    this.syncPointers();
+  }
+
+  private pointerTargets: Array<{ mesh: Mesh; opacity: () => number }> | null = null;
+
+  /**
+   * 26 Oct (CPU pass): a hidden or faded glass button is not tested by the hand rays and pokes at all. The pointer
+   * library raycasts every interactable each frame whether it is shown or not (IWSDK's input system was the largest
+   * CPU cost of a frame, measured at ×6).
+   */
+  private syncPointers(): void {
+    if (this.pointerTargets == null) {
+      const t: Array<{ mesh: Mesh; opacity: () => number }> = [];
+      const card = (mesh: Mesh, u: CardUniforms) => t.push({ mesh, opacity: () => u.uOpacity.value });
+      for (const c of this.placeChips) card(c.mesh, c.uniforms);
+      for (const c of this.ritualChips) card(c.mesh, c.uniforms);
+      for (const c of this.wordChips) card(c.mesh, c.uniforms);
+      for (const c of this.globeButtons) card(c.mesh, c.uniforms);
+      card(this.keepChip, this.chipUniforms[0]);
+      card(this.lighterChip, this.chipUniforms[1]);
+      card(this.moveChip, this.moveUniforms);
+      card(this.ornament, this.ornamentUniforms);
+      card(this.voiceButton, this.voiceUniforms);
+      card(this.ritualsOrnament, this.ritualsUniforms);
+      card(this.immersionToggle, this.immersionUniforms);
+      this.pointerTargets = t;
+    }
+    for (const { mesh, opacity } of this.pointerTargets) {
+      const on = mesh.visible && opacity() > 0.03;
+      const m = mesh as Mesh & { pointerEvents?: string };
+      if (m.pointerEvents == null) continue; // not registered by IWSDK yet
+      const want = on ? 'auto' : 'none';
+      if (m.pointerEvents !== want) m.pointerEvents = want;
+    }
   }
 }

@@ -4,6 +4,7 @@
  * buffers and exposed as `window.__wdd.perf()` for tools/perf-probe.mjs.
  */
 import { createSystem } from '@iwsdk/core';
+import { guard } from '../runtime-guard.ts';
 
 const N = 600;
 
@@ -36,6 +37,9 @@ const triangles = new Ring();
 /** Frames over 22 ms with their time (performance.now()), to line them up with what the app was doing. */
 const longFrames: Array<[number, number]> = [];
 let frameStart = 0;
+/** The app's CPU of the last frame (update + render submit), for the frame governor. */
+let lastUpdateMs = 0;
+let lastRenderMs = 0;
 let lastFrameStart = 0;
 
 /** Runs first (lowest priority value). */
@@ -46,7 +50,8 @@ export class PerfBeginSystem extends createSystem({}) {
     renderer.render = (scene, camera) => {
       const t0 = performance.now();
       original(scene, camera);
-      render.push(performance.now() - t0);
+      lastRenderMs = performance.now() - t0;
+      render.push(lastRenderMs);
       calls.push(renderer.info.render.calls);
       triangles.push(renderer.info.render.triangles);
     };
@@ -59,6 +64,7 @@ export class PerfBeginSystem extends createSystem({}) {
         triangles: triangles.stats(),
         samples: frame.count,
         programs: renderer.info.programs?.length ?? 0,
+        programNames: (renderer.info.programs ?? []).map((p) => `${p.name}#${p.id}`),
         textures: renderer.info.memory.textures,
         geometries: renderer.info.memory.geometries,
         pixelRatio: renderer.getPixelRatio(),
@@ -72,6 +78,11 @@ export class PerfBeginSystem extends createSystem({}) {
     };
     const w = window as unknown as { __wdd?: Record<string, unknown> };
     w.__wdd = Object.assign(w.__wdd ?? {}, api);
+    // 26 Oct (safety nets): the frame governor starts with the XR session, at the display's own rate if given.
+    renderer.xr.addEventListener('sessionstart', () => {
+      const session = renderer.xr.getSession() as (XRSession & { frameRate?: number }) | null;
+      guard.sessionStarted(typeof session?.frameRate === 'number' ? session.frameRate : null);
+    });
   }
 
   update(): void {
@@ -83,6 +94,7 @@ export class PerfBeginSystem extends createSystem({}) {
         longFrames.push([Math.round(performance.now()), +frameMs.toFixed(1)]);
         if (longFrames.length > 50) longFrames.shift();
       }
+      if (this.renderer.xr.isPresenting) guard.sample(frameMs, lastUpdateMs + lastRenderMs, frameStart / 1000);
     }
     lastFrameStart = frameStart;
   }
@@ -91,6 +103,7 @@ export class PerfBeginSystem extends createSystem({}) {
 /** Runs last (highest priority value). */
 export class PerfEndSystem extends createSystem({}) {
   update(): void {
-    update.push(performance.now() - frameStart);
+    lastUpdateMs = performance.now() - frameStart;
+    update.push(lastUpdateMs);
   }
 }
