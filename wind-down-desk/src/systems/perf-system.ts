@@ -34,6 +34,8 @@ const update = new Ring();
 const render = new Ring();
 const calls = new Ring();
 const triangles = new Ring();
+/** The app's CPU per frame (ECS update + render submit of the same frame), for the budget checks. */
+const cpu = new Ring();
 /** Frames over 22 ms with their time (performance.now()), to line them up with what the app was doing. */
 const longFrames: Array<[number, number]> = [];
 let frameStart = 0;
@@ -61,6 +63,7 @@ export class PerfBeginSystem extends createSystem({}) {
         updateMs: update.stats(),
         renderMs: render.stats(),
         drawCalls: calls.stats(),
+        cpuMs: cpu.stats(),
         triangles: triangles.stats(),
         samples: frame.count,
         programs: renderer.info.programs?.length ?? 0,
@@ -72,7 +75,7 @@ export class PerfBeginSystem extends createSystem({}) {
         longFrames: longFrames.slice(),
       }),
       perfReset: () => {
-        [frame, update, render, calls, triangles].forEach((r) => r.reset());
+        [frame, update, render, calls, triangles, cpu].forEach((r) => r.reset());
         longFrames.length = 0;
       },
     };
@@ -94,6 +97,7 @@ export class PerfBeginSystem extends createSystem({}) {
         longFrames.push([Math.round(performance.now()), +frameMs.toFixed(1)]);
         if (longFrames.length > 50) longFrames.shift();
       }
+      cpu.push(lastUpdateMs + lastRenderMs);
       if (this.renderer.xr.isPresenting) guard.sample(frameMs, lastUpdateMs + lastRenderMs, frameStart / 1000);
     }
     lastFrameStart = frameStart;

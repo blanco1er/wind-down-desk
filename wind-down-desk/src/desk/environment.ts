@@ -28,6 +28,7 @@ import {
   LinearFilter,
   RepeatWrapping,
   Mesh,
+  NoBlending,
   NoColorSpace,
   NormalBlending,
   ShaderMaterial,
@@ -39,6 +40,7 @@ import {
 } from '@iwsdk/core';
 import type { WebGLRenderer } from '@iwsdk/core';
 import { ktx2Loader } from './ktx2.ts';
+import { perfOpts } from '../perf-opts.ts';
 import { adaptLight, hdSupport, mixLight, PLACES, ROOM_LIGHT, type Immersion, type Place, type PlaceId, type PlaceLight, type PlaceMeasure } from '../logic/places.ts';
 import { rig, timeUniform } from './materials.ts';
 import { gradedRadiance, lerpSH, projectSH, type SH9 } from '../logic/sh-light.ts';
@@ -297,6 +299,11 @@ export class PlaceBackdrop {
   }
 
   /** GPU bytes held by place panoramas right now (0 in your room). */
+  /** The place drawn without blending right now (it covers the whole view). */
+  get opaque(): boolean {
+    return this.material.blending === NoBlending;
+  }
+
   gpuBytes(): number {
     let total = 0;
     for (const loaded of this.textures.values()) total += loaded.gpuBytes;
@@ -692,6 +699,13 @@ export class PlaceBackdrop {
     const target = this.immersion === 'full' ? 1 : 0;
     this.immersionValue += (target - this.immersionValue) * (1 - Math.exp(-2.4 * dt));
     u.uState.value.w = this.immersionValue;
+    // 26 Oct (overdraw): when the place covers the whole view (Full, no crossfade with your room), it is drawn
+    // without blending — the GPU writes the place without reading what is under it (the largest surface of a frame).
+    // Same program (blending is render state), so no compile when it switches.
+    const st = u.uState.value;
+    const covering = this.immersionValue > 0.995 && (this.progress >= 1 ? st.y > 0.5 : st.x > 0.5 && st.y > 0.5);
+    const blend = covering && perfOpts.on ? NoBlending : NormalBlending;
+    if (this.material.blending !== blend) this.material.blending = blend;
     if (this.progress < 1) {
       this.progress = Math.min(1, this.progress + dt / FADE_SECONDS);
       const k = this.progress * this.progress * (3 - 2 * this.progress);

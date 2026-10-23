@@ -149,6 +149,7 @@ export class RitualMemory {
   }
 
   private save(): void {
+    this.version++;
     try {
       this.store?.setItem(STORAGE_KEY, JSON.stringify(this.data));
     } catch {
@@ -223,9 +224,23 @@ export class RitualMemory {
   }
 
   /** Rituals already completed tonight (unique, in first-done order). */
+  /** Bumped at every save: caches below know the data changed. */
+  private version = 0;
+  private doneCache = { at: -1e12, version: -1, value: [] as RitualKind[] };
+  /** The cache below can be switched off for an A/B measure (perf-opts). */
+  cacheOn = true;
+
+  /**
+   * Rituals done tonight. 26 Oct (CPU pass): read every frame (the evening's light, the touch words), it formatted
+   * a date and searched the nights each time; now cached until the data changes, and at most 1 s (midnight).
+   */
   doneTonight(): RitualKind[] {
+    const t = Date.now();
+    const c = this.doneCache;
+    if (this.cacheOn && c.version === this.version && t - c.at < 1000) return c.value.slice();
     const night = this.data.nights.find((n) => n.date === eveningDate(this.now()));
-    return [...new Set(night?.rituals ?? [])];
+    this.doneCache = { at: t, version: this.version, value: [...new Set(night?.rituals ?? [])] };
+    return this.doneCache.value.slice();
   }
 
   /** Evenings on which a ritual was completed (the menu shows it quietly). */

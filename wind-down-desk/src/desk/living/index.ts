@@ -18,6 +18,7 @@
 import { Group, Mesh, Object3D, Vector3, Vector4, type Camera, type World } from '@iwsdk/core';
 import type { PlaceBackdrop } from '../environment.ts';
 import { PLACES, type PlaceId } from '../../logic/places.ts';
+import { perfOpts } from '../../perf-opts.ts';
 import {
   CrackleScheduler,
   EYE_HEIGHT,
@@ -332,6 +333,9 @@ export class LivingPlaces {
 
   /** After update(): hides what the level saves (sounds go on; the photo stays as it is). */
   enforceLevel(): void {
+    // 26 Oct (CPU pass): a place's living layer that is not shown (built earlier, kept for later) skips the scene
+    // graph's matrix updates — its meshes and its positional sounds were recomputed every frame for nothing.
+    for (const b of this.built.values()) b.root.matrixWorldAutoUpdate = b.root.visible || !perfOpts.on;
     if (this.level === 'full') return;
     if (this.level === 'off') {
       this.root.visible = false;

@@ -1,5 +1,5 @@
-// 45-minute session without leaks (26 Oct): one ≈ 95 s cycle of a lived evening per run (Places in the globe, a
-// place and back, the sky, Breathe, a few spoken lines), then the memory: JS heap, GPU textures / geometries /
+// 45-minute session without leaks (26 Oct): one ≈ 95 s cycle of a lived evening per run (Places in the globe → a
+// different place each time, the sky, Breathe, Talk it through with the on-device agent, back to the room), then the memory: JS heap, GPU textures / geometries /
 // programs (three.js), draw calls. Run it in a loop (tools/stability/long-session.sh) on the same page.
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 export default async function run({ frame, page }) {
@@ -24,32 +24,43 @@ export default async function run({ frame, page }) {
     await wait(5000);
   }
   const say = (t) => ev((x) => window.__wdd.say(x), t);
-  const places = ['moon-lake', 'moon-beach', 'ember-fire', 'northern-lights', 'fireside-cabin', 'rain-veranda', 'firefly-meadow', 'desert-stars', 'rooftop-city'];
   const k = await ev(() => (window.__longCycle = (window.__longCycle ?? 0) + 1));
+  const steps = [];
+  const mode = () => ev(() => window.__wdd.evening().mode);
+  // Places in the globe: open, browse k places on, "this one" (every place comes in turn), Full, the sky.
   await say('Places.');
   await wait(2500);
-  await ev(() => window.__wdd.press('globe-next'));
-  await wait(2000);
-  await ev(() => window.__wdd.globe('close'));
-  await ev((p) => void window.__wdd.place(p), places[k % places.length]);
-  await wait(9000);
+  for (let i = 0; i < 1 + (k % 3); i++) {
+    await ev(() => window.__wdd.press('globe-next'));
+    await wait(900);
+  }
+  await say('This one.');
+  await wait(5000);
+  steps.push(`place:${await ev(() => window.__wdd.debug().visuals.backdrop.place)}`);
   await ev(() => window.__wdd.immersion('full'));
-  await wait(6000);
   await ev(() => window.__wdd.sky(false));
-  await wait(8000);
+  await wait(6000);
+  // Breathe (two breaths), then stop.
   await ev(() => window.__wdd.press('ritual:breathe'));
-  await wait(20000);
+  await wait(2000);
+  steps.push(`breathe:${await mode()}`);
+  await wait(22000);
   await say("That's enough.");
-  await wait(8000);
+  await wait(6000);
+  // Talk it through (the on-device agent stands in for the LLM here: no server, no key), two turns, then the end.
+  await ev(() => window.__wdd.press('ritual:talk'));
+  await wait(4000);
+  steps.push(`talk:${await mode()}`);
+  await say(`Work has been a lot this week, cycle ${k}.`);
+  await wait(6000);
+  await say('Mostly the report. I keep putting it off.');
+  await wait(6000);
+  await say("That's all.");
+  await wait(9000);
   await say('Back to my room.');
-  await wait(6000);
-  await say(`I need to call the dentist and finish the report number ${k}.`);
-  await wait(6000);
-  await ev(() => window.__wdd.press('rituals'));
-  await wait(3000);
-  await ev(() => window.__wdd.press('rituals'));
-  await wait(3000);
-  return ev(() => {
+  await wait(4000);
+  steps.push(`end:${await mode()}`);
+  const sample = await ev(() => {
     const p = window.__wdd.perf();
     const mem = performance.memory;
     return {
@@ -64,6 +75,10 @@ export default async function run({ frame, page }) {
       quality: window.__wdd.quality().level,
       stones: window.__wdd.state().tokens.length,
       mode: window.__wdd.evening().mode,
+      done: window.__wdd.evening().done,
+      livingBuilt: window.__wdd.debug().visuals.living.built.size,
+      previews: window.__wdd.globe().previews,
     };
   });
+  return { ...sample, steps };
 }

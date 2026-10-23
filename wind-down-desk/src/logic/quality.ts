@@ -104,7 +104,9 @@ export class FrameGovernor {
     Object.assign(this.last, { slowShare: +slowShare.toFixed(3), cpuP90: +cpuP90.toFixed(2), nominalMs: +nominal.toFixed(2) });
     // Too slow: ≥ 8 % missed frames, or the app's own CPU over 85 % of a frame, two evaluations in a row.
     const bad = slowShare >= 0.08 || cpuP90 > nominal * 0.85;
-    const calm = slowShare < 0.01 && cpuP90 < nominal * 0.55;
+    // Calm: under 2.5 % missed frames (a busy desktop or a jittery browser never reaches 1 %: the 45-min emulator
+    // session stayed stuck at level 3 after a load spike with the first threshold).
+    const calm = slowShare < 0.025 && cpuP90 < nominal * 0.55;
     this.badEvals = bad ? this.badEvals + 1 : 0;
     if (!calm) this.calmSince = -1;
     else if (this.calmSince < 0) this.calmSince = t;

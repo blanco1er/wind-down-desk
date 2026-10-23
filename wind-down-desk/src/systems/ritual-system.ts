@@ -53,6 +53,7 @@ import { followUpQuestion, starPosition, type Recall } from '../logic/memory.ts'
 import { figureFor, isSkyCommand, KEEPSAKE, MILESTONES, milestoneLine, milestoneToCelebrate, plantGrowth, type Milestone } from '../logic/milestones.ts';
 import { KEEPSAKE_AT } from '../desk/keepsakes.ts';
 import { guard } from '../runtime-guard.ts';
+import { perfOpts } from '../perf-opts.ts';
 import type { QualityLevel } from '../logic/quality.ts';
 import { fallbackFrame, frameOnTable, type HeadPose, type PlaneCandidate } from '../logic/placement.ts';
 import { chooseSurface, meshTop, type MeshBox, type SurfaceChoice } from '../logic/surfaces.ts';
@@ -1230,6 +1231,7 @@ export class RitualSystem extends createSystem({
 
   /** 26 Oct (safety nets): words that could not be turned into text in a row (the server or the network down). */
   private sttMisses = 0;
+  private touchClock = 1;
   private lastPlacedAt = -1;
   private sttToldAt = -1e9;
 
@@ -3147,7 +3149,13 @@ export class RitualSystem extends createSystem({
       this.visuals.orbState(preview || services.voice.state === 'listening', this.extracting > 0 || this.planBusy || this.talk?.busy === true, services.voice.level, preview ? 0.6 : this.lampGazeK * 0.6, services.voice.state === 'muted');
     }
     this.visuals.update(dt);
-    this.refreshTouch();
+    // 26 Oct (CPU pass): the touch words are recomputed 12 times a second, not every frame (it built strings and
+    // arrays each frame; a word appears ≤ 80 ms later, unnoticeable).
+    this.touchClock += dt;
+    if (this.touchClock >= 0.08 || !perfOpts.on) {
+      this.touchClock = 0;
+      this.refreshTouch();
+    }
     this.updateEvening(dt);
     // The remembered "Muted" holds from the first frame on (the audio listener appears after this system's init).
     if (!this.masterApplied) this.masterApplied = setMasterSound(this.world, !this.voice.muted);
@@ -3779,6 +3787,12 @@ export class RitualSystem extends createSystem({
           if (level != null) guard.setLevel(level, 'forced');
         }
         return { level: guard.level, floor: guard.floor, safe: guard.safe, forced: guard.forced, governor: guard.governor?.last ?? null, knobs: guard.knobs(), hdPlaces: this.visuals.backdrop.hdStatus() };
+      },
+      /** CPU / overdraw pass: switch its savings off (false) or on, for an interleaved A/B measure. */
+      perfOpts: (on: boolean) => {
+        perfOpts.on = on;
+        services.memory.cacheOn = on;
+        return on;
       },
       /** The short message shown now over the phase caption (play-test checks). */
       caption: () => ({ flash: this.captionOverride != null && this.captionOverride.until > this.elapsed ? this.captionOverride.text : null }),
