@@ -54,6 +54,7 @@ import { figureFor, isSkyCommand, KEEPSAKE, MILESTONES, milestoneLine, milestone
 import { KEEPSAKE_AT } from '../desk/keepsakes.ts';
 import { guard } from '../runtime-guard.ts';
 import { perfOpts } from '../perf-opts.ts';
+import { StoneBatch } from '../desk/stone-batch.ts';
 import type { QualityLevel } from '../logic/quality.ts';
 import { fallbackFrame, frameOnTable, type HeadPose, type PlaneCandidate } from '../logic/placement.ts';
 import { chooseSurface, meshTop, type MeshBox, type SurfaceChoice } from '../logic/surfaces.ts';
@@ -350,6 +351,8 @@ export class RitualSystem extends createSystem({
     title: string;
   } | null = null;
   private weightShape: ReturnType<typeof createPebbleGeometry> | null = null;
+  /** 26 Oct (draw budget): every stone and the Release weight drawn by one instanced mesh (desk/stone-batch.ts). */
+  private stoneBatch!: StoneBatch;
   private releaseDoneAt = -1;
   private weightLeaving = false;
   private readonly hands = {
@@ -378,6 +381,10 @@ export class RitualSystem extends createSystem({
       this.stoneShapes.push(createPebbleGeometry(this.layout.tokenRadius * 1.08, this.layout.tokenRadius * 0.9, this.layout.tokenHeight * 1.5, 0.02, seed, -this.layout.tokenHeight / 2));
     }
     this.stoneMaterialProto = createStoneMaterial(this.atlas.texture, new Vector2(this.atlas.canvas.width, this.atlas.canvas.height));
+    // The Release weight's shape is made now so that it joins the instanced stones (same topology, its own size).
+    this.weightShape = createPebbleGeometry(0.06, 0.042, 0.026, 0.025, 11, -0.013);
+    this.stoneBatch = new StoneBatch([...this.stoneShapes.map((s) => s.geometry), this.weightShape.geometry], this.stoneMaterialProto);
+    this.stoneBatch.attach(this.world.scene);
 
     // The lamp is touched, not pointed at: a hand ray sweeping past it while carrying a stone must never mute the mic.
     this.visuals.orbEntity.addComponent(PokeInteractable).addComponent(DeskButton, { action: 'orb' });
@@ -1017,6 +1024,7 @@ export class RitualSystem extends createSystem({
       .createTransformEntity(mesh)
       .addComponent(WorryToken, { tokenId: state.id })
       .addComponent(OneHandGrabbable, { rotate: false, translate: true });
+    this.stoneBatch.add(mesh, material.uniforms);
     const stone: Stone = {
       id: state.id,
       entity,
@@ -1213,6 +1221,7 @@ export class RitualSystem extends createSystem({
 
   private disposeStone(stone: Stone): void {
     this.stones.delete(stone.id);
+    this.stoneBatch.remove(stone.mesh);
     this.atlas.release(stone.cell);
     (stone.mesh.material as { dispose(): void }).dispose();
     stone.entity.dispose();
@@ -2234,6 +2243,7 @@ export class RitualSystem extends createSystem({
     const rest = { x: 0.205, y: 0.013, z: 0.115 };
     deskToWorld(this.frame, from, this.world3);
     mesh.position.set(this.world3.x, this.world3.y, this.world3.z);
+    this.stoneBatch.add(mesh, material.uniforms);
     this.weight = {
       mesh,
       entity,
@@ -2265,6 +2275,7 @@ export class RitualSystem extends createSystem({
     if (w == null) return;
     this.weight = null;
     this.weightLeaving = false;
+    this.stoneBatch.remove(w.mesh);
     this.atlas.release(w.cell);
     (w.mesh.material as { dispose(): void }).dispose();
     w.entity.dispose();
@@ -3787,6 +3798,11 @@ export class RitualSystem extends createSystem({
           if (level != null) guard.setLevel(level, 'forced');
         }
         return { level: guard.level, floor: guard.floor, safe: guard.safe, forced: guard.forced, governor: guard.governor?.last ?? null, knobs: guard.knobs(), hdPlaces: this.visuals.backdrop.hdStatus() };
+      },
+      /** Instanced stones: on (one draw for all) or off (each stone draws itself), for parity captures and draw counts. */
+      stoneBatch: (on?: boolean) => {
+        if (on != null) this.stoneBatch.setEnabled(on);
+        return { enabled: this.stoneBatch.enabled, stones: this.stoneBatch.size, drawn: this.stoneBatch.drawn };
       },
       /** CPU / overdraw pass: switch its savings off (false) or on, for an interleaved A/B measure. */
       perfOpts: (on: boolean) => {

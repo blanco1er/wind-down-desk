@@ -31,6 +31,8 @@ interface UndoEntry {
 }
 
 export const MAX_TOKENS = 8;
+/** Stones the desk holds at once. Only the emulator test set lifts it (film.cap: draw budget proof with 12 stones). */
+export const deskCap = { max: MAX_TOKENS };
 
 export class SortingSession {
   private readonly tokens = new Map<string, TokenState>();
@@ -42,7 +44,7 @@ export class SortingSession {
     if (clean.length === 0) {
       throw new Error('A worry token needs some text.');
     }
-    if (this.active().length >= MAX_TOKENS) {
+    if (this.active().length >= deskCap.max) {
       throw new Error('The desk is full. Sort a few first.');
     }
     const token: TokenState = {

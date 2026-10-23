@@ -732,6 +732,11 @@ export function createStoneMaterial(atlas: Texture, atlasSize: Vector2): ShaderM
       ${NOISE}
       ${RIG}
       void main() {
+        // 26 Oct (instanced stones): the engraving's texture gradients taken here, in uniform control flow, then used
+        // explicitly below (textureGrad). Sampling inside the branches left the mip level undefined at letter edges
+        // (drivers differ, and so did the instanced and single-mesh draws).
+        vec2 gUvX = dFdx(vLabelUv);
+        vec2 gUvY = dFdy(vLabelUv);
         // Burn front: large soft shapes from the rim inward, never pixel noise.
         float rim = length(vObj.xz) / 0.05;
         float edgeN = clamp(0.62 * (1.0 - rim) + 0.38 + 0.3 * (vnoise(vObj * 55.0 + uSeed) - 0.5), 0.0, 1.0);
@@ -790,13 +795,13 @@ export function createStoneMaterial(atlas: Texture, atlasSize: Vector2): ShaderM
         vec2 local = (vLabelUv - uCell.xy) / uCell.zw;
         float inCell = step(0.004, local.x) * step(local.x, 0.996) * step(0.004, local.y) * step(local.y, 0.996) * vTop;
         if (inCell > 0.0) {
-          vec3 c = texture2D(uMap, vLabelUv).rgb * (1.0 - uEngraveFade);
+          vec3 c = textureGrad(uMap, vLabelUv, gUvX, gUvY).rgb * (1.0 - uEngraveFade);
           float cut = c.r;
           if (c.g + c.b > 0.002) {
             vec2 ex = vec2(uTexel.x, 0.0);
             vec2 ey = vec2(0.0, uTexel.y);
-            float gx = texture2D(uMap, vLabelUv + ex).g - texture2D(uMap, vLabelUv - ex).g;
-            float gy = texture2D(uMap, vLabelUv + ey).g - texture2D(uMap, vLabelUv - ey).g;
+            float gx = textureGrad(uMap, vLabelUv + ex, gUvX, gUvY).g - textureGrad(uMap, vLabelUv - ex, gUvX, gUvY).g;
+            float gy = textureGrad(uMap, vLabelUv + ey, gUvX, gUvY).g - textureGrad(uMap, vLabelUv - ey, gUvX, gUvY).g;
             // Height = -depth * G: slope in object metres per metre.
             float sx = gx * 0.5 / uTexel.x * uCell.z / uLabel.x;
             float sz = -gy * 0.5 / uTexel.y * uCell.w / uLabel.y;
@@ -804,8 +809,8 @@ export function createStoneMaterial(atlas: Texture, atlasSize: Vector2): ShaderM
             N = normalize(N + slope.x * vTan + slope.y * vBit);
             // Lip shadow: inside a letter, if the edge is close on the lamp side, the wall hides the light.
             vec2 lpx = normalize(vec2(vKeyObj.x * uCell.z / uLabel.x / uTexel.x, -vKeyObj.z * uCell.w / uLabel.y / uTexel.y) + 1e-5);
-            float toward = texture2D(uMap, vLabelUv + lpx * uTexel * 2.4).r;
-            float away = texture2D(uMap, vLabelUv - lpx * uTexel * 2.0).r;
+            float toward = textureGrad(uMap, vLabelUv + lpx * uTexel * 2.4, gUvX, gUvY).r;
+            float away = textureGrad(uMap, vLabelUv - lpx * uTexel * 2.0, gUvX, gUvY).r;
             float lip = cut * (1.0 - toward);
             lit = 1.0 - 0.75 * lip * inCell * (1.0 - 0.6 * uBasalt) * (1.0 - 0.6 * uInk.a);
             // The far lip catches the light: a fine bright edge just outside the cut.
@@ -836,7 +841,7 @@ export function createStoneMaterial(atlas: Texture, atlasSize: Vector2): ShaderM
         col = mix(col, vec3(2.2, 1.0, 0.36), edgeBand * edgeBand);
         // Release: the words fill with warm light as the stone sinks, then fade with it.
         if (uEngraveGlow > 0.0 && inCell > 0.0) {
-          float letters = texture2D(uMap, vLabelUv).r * inCell;
+          float letters = textureGrad(uMap, vLabelUv, gUvX, gUvY).r * inCell;
           col += vec3(1.6, 1.0, 0.5) * letters * uEngraveGlow;
         }
         // Under the water: wet, darker, a little cooler.

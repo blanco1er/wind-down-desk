@@ -30,6 +30,7 @@ import {
 } from '@iwsdk/core';
 import type { DeskFrame } from '../logic/desk-layout.ts';
 import type { PlaneCandidate } from '../logic/placement.ts';
+import { deskCap } from '../logic/session.ts';
 import { deskPlacedListeners } from '../systems/ritual-system.ts';
 import { services, testClock } from '../services.ts';
 import { placeListeners } from './environment.ts';
@@ -257,6 +258,11 @@ export function mountFilmSet(world: World): void {
       d.setDate(d.getDate() + Math.max(0, Math.min(400, Math.round(n))));
       Object.assign(testClock, { on: true, base: d.getTime(), setAt: Date.now() });
       return d.toString();
+    },
+    /** Draw budget proof (stone-draws tool): the desk may hold n stones tonight (the app's own cap is 8). */
+    cap: (n: number) => {
+      deskCap.max = Math.max(1, Math.min(24, Math.round(n)));
+      return deskCap.max;
     },
     history: (evenings: number) => {
       services.memory.seedHistory(evenings);

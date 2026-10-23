@@ -192,3 +192,15 @@ test('cheap depth (axe 5): the ground is projected only on open flat places, and
   // Off (h = 0): the photo stays at infinity.
   assert.deepEqual(groundDirection([0, -1, 0], moved, centre, 0), [0, -1, 0]);
 });
+
+test('a place\'s photo patches on the shared root follow their place (never drawn after leaving it)', () => {
+  // 26 Oct: hearth, sea, ambient and fire-glow patches hang on the shared living root; they used to stay drawn after
+  // their place was left (+1 draw call per eye for every place visited, and their animation over the next photo).
+  const src = readFileSync(new URL('../src/desk/living/index.ts', import.meta.url), 'utf8');
+  const build = src.slice(src.indexOf('private build(id: PlaceId'), src.indexOf('/** Breathe: the frame of the breath'));
+  const added = [...build.matchAll(/this\.root\.add\((\w+(?:\.\w+)?)\);/gu)].map((m) => m[1]).filter((n) => n !== 'root' && n !== 'star');
+  assert.ok(added.length >= 4);
+  for (const name of added) assert.ok(build.includes(`patches.push(${name});`), `${name} follows its place`);
+  // Shown and hidden only through show(): the place's root and its patches together.
+  assert.doesNotMatch(src.replace(/private show\(b: Built, on: boolean\): void \{[^}]*\}/u, ''), /\b(b|this\.current)\.root\.visible = (true|false)/u);
+});

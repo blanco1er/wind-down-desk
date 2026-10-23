@@ -68,6 +68,12 @@ interface Built {
   star: Mesh | null;
   /** 26 Oct (adaptive quality): what 'simple' hides — snow, fireflies, sparks, the shooting star. */
   light: Object3D[];
+  /**
+   * 26 Oct (draw budget): the photo patches (hearth, sea, ambient, fire glow) hang on the shared root, not on the
+   * place's own root — they used to stay drawn after leaving their place: one draw call per eye for every place
+   * visited (+8 after a tour), and their animation painted over the next place's photo. They follow the place now.
+   */
+  patches: Object3D[];
 }
 
 export class LivingPlaces {
@@ -187,9 +193,9 @@ export class LivingPlaces {
     b.sound.prefetch();
     // compile() only gathers visible objects: shown for this synchronous call only.
     const was = b.root.visible;
-    b.root.visible = true;
+    this.show(b, true);
     void renderer.compileAsync(this.root, camera, scene).catch(() => {});
-    b.root.visible = was;
+    this.show(b, was);
   }
 
   setPlace(id: PlaceId): void {
@@ -214,9 +220,15 @@ export class LivingPlaces {
     this.shared.uLivingYaw.value = this.anchorYaw + PLACES[id].yaw;
     this.fade = this.leaving.length > 0 ? 0 : this.fade;
     this.target = 1;
-    this.current.root.visible = true;
+    this.show(this.current, true);
     this.current.sound.start();
     this.measureHead(true);
+  }
+
+  /** A place's living layer shown or hidden: its own root and its photo patches on the shared root. */
+  private show(b: Built, on: boolean): void {
+    b.root.visible = on;
+    for (const p of b.patches) p.visible = on;
   }
 
   private build(id: PlaceId, life: PlaceLife): Built {
@@ -225,6 +237,7 @@ export class LivingPlaces {
     const root = new Group();
     this.root.add(root);
     const meshes: Mesh[] = [];
+    const patches: Object3D[] = [];
     const sound = new LivingSound(this.world, root);
     sound.log = this.log;
     const loops: Array<{ src: string; volume: number; x: number; y: number; z: number; ref: number }> = [];
@@ -248,6 +261,7 @@ export class LivingPlaces {
       if (patch != null) {
         this.root.add(patch);
         meshes.push(patch);
+        patches.push(patch);
       }
       loops.push({ src: EMBERS, volume: 0.12, ...at(life.hearth.yaw, life.hearth.dist, life.hearth.height), ref: 1.6 });
       sound.preload(CRACKLES);
@@ -257,6 +271,7 @@ export class LivingPlaces {
       if (sea != null) {
         this.root.add(sea);
         meshes.push(sea);
+        patches.push(sea);
       }
       const sheet = createWaveSheet(life.waves, this.backdrop, this.shared);
       root.add(sheet);
@@ -275,6 +290,7 @@ export class LivingPlaces {
       if (fire.glow != null) {
         this.root.add(fire.glow);
         meshes.push(fire.glow);
+        patches.push(fire.glow);
       }
       loops.push({ src: EMBERS, volume: 0.32, x: 0, y: 0.2, z: 0, ref: 2.2 });
       sound.preload(CRACKLES);
@@ -290,6 +306,7 @@ export class LivingPlaces {
       if (patch != null) {
         this.root.add(patch);
         meshes.push(patch);
+        patches.push(patch);
       }
     }
     if (life.shootingStars === true) {
@@ -301,10 +318,10 @@ export class LivingPlaces {
     for (const m of meshes) if (m.userData.livingKind === 'particles') light.push(m);
     if (fire != null) light.push(fire.sparks);
     if (star != null) light.push(star);
-    const b: Built = { id, life, root, meshes, sound, fire, clock, star, light };
+    const b: Built = { id, life, root, meshes, sound, fire, clock, star, light, patches };
     this.built.set(id, b);
     this.place(b);
-    root.visible = false;
+    this.show(b, false);
     return b;
   }
 
@@ -420,7 +437,7 @@ export class LivingPlaces {
       this.shared.uLivingFade.value = this.fade;
       if (this.fade < 0.01 || this.current == null) {
         for (const b of this.leaving) {
-          b.root.visible = false;
+          this.show(b, false);
           b.sound.stop();
           b.sound.setLevel(0);
           if (b.star != null) b.star.visible = false;
@@ -451,7 +468,7 @@ export class LivingPlaces {
       return;
     }
     if (this.leaving.length === 0) this.target = 1;
-    b.root.visible = true;
+    this.show(b, true);
     b.sound.setLevel(this.fade);
     this.headCheck -= dt;
     this.measureHead();
