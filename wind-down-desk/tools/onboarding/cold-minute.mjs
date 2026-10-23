@@ -24,7 +24,8 @@ export default async function run({ frame, page, cdp }) {
   await f.evaluate((h) => {
     const d = window.IWER_DEVICE;
     d.primaryInputMode = 'hand';
-    d.position.set(-0.84, 1.2, 0.2);
+    // 24 Oct: eyes 0.45 m above the synthetic table (a typical seat; was 0.39, a low one).
+    d.position.set(-0.84, 1.26, 0.2);
     const yaw = Math.PI / 2;
     const pitch = (-27 * Math.PI) / 180;
     const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2), cp = Math.cos(pitch / 2), sp = Math.sin(pitch / 2);

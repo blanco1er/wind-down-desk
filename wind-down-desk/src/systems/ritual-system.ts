@@ -35,6 +35,10 @@ import { createDeskLayout, binById, BIN_IDS, BIN_STONE_SCALE, classifyDrop, desk
 import { easeToward, GAZE, gazeAngle, GazeFocus, gazePick, type GazeTarget } from '../logic/gaze.ts';
 import { accessLine, DWELL_SELECT, parseAccessCommand, type AccessPrefs } from '../logic/access.ts';
 import { answerOf, isForgetCommand } from '../logic/recall.ts';
+import { bubbleLines, DONE_BUBBLE } from '../logic/bubbles.ts';
+
+/** Seconds of silence before the example stone when suggestion bubbles are offered (8 s otherwise, onboarding.ts). */
+const BUBBLES_BEFORE_EXAMPLE = 14;
 import { EXAMPLE_STONE, ghostFrame, ghostTarget, onboardingStep, SPOKEN_EXAMPLE } from '../logic/onboarding.ts';
 import { GhostHand, HandLook } from '../desk/hands.ts';
 import { followUpQuestion, starPosition, type Recall } from '../logic/memory.ts';
@@ -197,6 +201,9 @@ export class RitualSystem extends createSystem({
   private gazedBin = -1;
   /** Look and pinch: the stone chosen by gaze + pinch, waiting for a bowl. */
   private chosenId: string | null = null;
+  /** Test / film only (debug API `lamp(state)`): forces one of the lamp's states. */
+  private lampDemo: 'idle' | 'listen' | 'speak' | 'think' | 'look' | null = null;
+  private lampDemoSpeakAt = 0;
   /**
    * 24 Oct — agent memory: a yes / no question of the lamp's own (a follow-up, "forget everything?"). It takes the
    * reply chips (touch, gaze dwell) and short spoken answers, before anything else.
@@ -207,6 +214,10 @@ export class RitualSystem extends createSystem({
   private followUpIndex = 0;
   private followUpsDone = 0;
   private askStone: string | null = null;
+  /** Suggested replies (axe 4), decided ten times a second with the onboarding (no per-frame allocation). */
+  private bubbles: string[] | null = null;
+  private bubbleKey = '';
+  private readonly usedBubbles = new Set<string>();
   /** 23 Oct — accessibility (logic/access.ts) and gaze-only selection by dwell. */
   private access: AccessPrefs = { gazeSelect: false, contrast: false, largeText: false };
   private dwellId: string | null = null;
@@ -2259,9 +2270,15 @@ export class RitualSystem extends createSystem({
     const unloadDump = placed && this.mode === 'unload' && (this.ritual.phase === 'dump' || this.ritual.phase === 'arrive');
     const releaseAsk = placed && this.mode === 'release' && this.release?.phase === 'ask';
     const stones = this.session.all().length;
+    // 24 Oct: a stone waiting to be sorted folds the words away — nothing ever hides the tray, a bowl or a stone
+    // (they come back once it is placed).
+    const toSort = this.session.unsorted().length;
     const p = placed ? this.proposal : null;
+    // Voice evening (microphone working): bubbles instead of the word grid, only once the person hesitates.
+    const mic = services.voice.state;
+    const talkVoice = !services.style.quiet && mic !== 'denied' && mic !== 'unavailable';
     const key = [
-      unloadDump ? `u${stones}:${[...this.usedTopics].join(',')}:${this.extracting}` : '',
+      unloadDump ? `u${stones}:${toSort}:${[...this.usedTopics].join(',')}:${this.extracting}:${talkVoice ? `b${this.bubbleKey}` : 'w'}` : '',
       releaseAsk ? `r${stones}` : '',
       p != null && this.mode === 'choose' ? `p${p.ritual}:${services.memory.doneTonight().length}` : '',
       placed && this.mode === 'breathe' ? 'b' : '',
@@ -2272,7 +2289,11 @@ export class RitualSystem extends createSystem({
     this.touchKey = key;
     // Words grid (closed while a menu takes the same plane).
     const menu = this.visuals.placesOpen;
-    if (unloadDump && !menu) {
+    if (unloadDump && !menu && toSort === 0 && talkVoice) {
+      const lines = this.bubbles;
+      this.wordActions = (lines ?? []).map((line) => () => this.onBubble(line));
+      this.visuals.setWords(lines == null ? null : lines.map((label) => ({ label, dim: false, accent: label === DONE_BUBBLE, wide: true })));
+    } else if (unloadDump && !menu && toSort === 0) {
       const words = unloadChoices(this.usedTopics, stones);
       this.wordActions = words.map((w) => () => this.onWord(w.label, 'unload'));
       this.visuals.setWords(words);
@@ -2301,6 +2322,15 @@ export class RitualSystem extends createSystem({
       this.replyActions = [];
       this.visuals.setReplies(null);
     }
+  }
+
+  /** A touched (or gazed) suggestion bubble: exactly as if the sentence had been said. */
+  private onBubble(line: string): void {
+    this.usedBubbles.add(line);
+    this.lastActivity = this.elapsed;
+    track('bubble', { kind: line === DONE_BUBBLE ? 'done' : 'worry' });
+    this.cue('tock', { x: 0, y: 0.2, z: -this.layout.depth / 2 });
+    void this.handleUtterance(line);
   }
 
   /** A touched word: a topic becomes an engraved stone; a stone of tonight becomes the Release stone; Write… types. */
@@ -2540,7 +2570,18 @@ export class RitualSystem extends createSystem({
     this.rv.update(dt);
     // The opening shot (2D page): the lamp glows warm and full, the focal point of the still life.
     const preview = this.placementMode === 'preview';
-    this.visuals.orbState(preview || services.voice.state === 'listening', this.extracting > 0 || this.planBusy, services.voice.level, preview ? 0.6 : this.lampGazeK * 0.6, services.voice.state === 'muted');
+    const demo = this.lampDemo;
+    if (demo != null) {
+      // Test / film only: the lamp's states on demand (listen with a voice level, speak, think, look at it).
+      const level = demo === 'listen' ? 0.35 + 0.3 * Math.abs(Math.sin(this.elapsed * 5.3) * Math.sin(this.elapsed * 1.7)) : 0;
+      if (demo === 'speak' && this.elapsed > this.lampDemoSpeakAt) {
+        this.lampDemoSpeakAt = this.elapsed + 3.5;
+        this.visuals.speakFor('Last night you let go of three things.');
+      }
+      this.visuals.orbState(demo === 'listen', demo === 'think', level, demo === 'look' ? 0.6 : 0, false);
+    } else {
+      this.visuals.orbState(preview || services.voice.state === 'listening', this.extracting > 0 || this.planBusy, services.voice.level, preview ? 0.6 : this.lampGazeK * 0.6, services.voice.state === 'muted');
+    }
     this.visuals.update(dt);
     this.refreshTouch();
     this.updateEvening(dt);
@@ -2970,6 +3011,26 @@ export class RitualSystem extends createSystem({
   private decideOnboarding(holding: boolean): void {
     const placed = this.placementMode === 'table' || this.placementMode === 'floating';
     const t = this.session.tally(this.tallies);
+    // Voice evenings with a working microphone get suggestion bubbles when they hesitate; otherwise the word grid.
+    const mic = services.voice.state;
+    const bubbles =
+      placed && mic !== 'denied' && mic !== 'unavailable'
+        ? bubbleLines({
+            quiet: services.style.quiet,
+            mode: this.mode,
+            phase: this.ritual.phase,
+            stones: t.sorted + t.unsorted,
+            toSort: t.unsorted,
+            idle: this.elapsed - this.lastActivity,
+            used: this.usedBubbles,
+            seed: new Date().getDate(),
+          })
+        : null;
+    const key = bubbles == null ? '' : bubbles.join('|');
+    if (key !== this.bubbleKey) {
+      this.bubbleKey = key;
+      this.bubbles = bubbles;
+    }
     const sorted = t.sorted;
     if (sorted > this.sortedNow && this.sortedNow === 0 && this.firstEvening && !services.style.quiet && !this.gazeTipShown) this.gazeTipAt = this.elapsed + 2.4;
     this.sortedNow = sorted;
@@ -2985,6 +3046,8 @@ export class RitualSystem extends createSystem({
           exampleShown: this.exampleShown,
         })
       : { spawnExample: false, ghost: false };
+    // Voice evening with suggestion bubbles up: they get time to be read and touched before the example stone.
+    if (step.spawnExample && this.bubbles != null && this.elapsed - this.lastActivity < BUBBLES_BEFORE_EXAMPLE) step.spawnExample = false;
     if (step.spawnExample) {
       this.exampleShown = true;
       if (this.spawnStone(EXAMPLE_STONE, 0, 'example') != null) {
@@ -3080,6 +3143,12 @@ export class RitualSystem extends createSystem({
         return deskToWorld(this.frame, { x: def.x, y: 0.03, z: def.z });
       },
       press: (action: string) => this.onButton(action),
+      /** The lamp's states on demand (axe 4 captures): idle, listen, speak, think, look; null gives it back. */
+      lamp: (state: 'idle' | 'listen' | 'speak' | 'think' | 'look' | null) => {
+        this.lampDemo = state;
+        this.lampDemoSpeakAt = 0;
+        return state;
+      },
       /** Accessibility settings (as the landing's button would) and the gaze-dwell state. */
       access: (change?: Partial<AccessPrefs>) => {
         if (change != null) this.setAccess(change, 'button');
@@ -3124,6 +3193,12 @@ export class RitualSystem extends createSystem({
         return { master: masterSound(this.world), muted: this.voice.muted, rms, context: l?.context?.state ?? null, speaking: globalThis.speechSynthesis?.speaking ?? false };
       },
       /** The lamp's voice: on/off, and what was played when (film: mix the real audio into the video). */
+      /** Test only: pretend the microphone is in a given state (the emulator has none), e.g. 'listening'. */
+      micState: (state: typeof services.voice.state) => {
+        services.voice.state = state;
+        this.refreshCaption();
+        return services.voice.state;
+      },
       voice: (on?: boolean) => {
         if (on != null) this.setVoice(on);
         return { muted: this.voice.muted, log: this.voice.log, cues: this.sounds.log };
@@ -3155,7 +3230,7 @@ export class RitualSystem extends createSystem({
       /** 23 Oct: the first minute (example stone, ghost hand target, gaze focus). */
       onboarding: () => {
         const t = this.ghostStone != null ? ghostTarget(this.session.all()) : null;
-        return { gazeSource: this.gazeSource, gazedBin: this.gazedBin, chosen: this.chosenId, firstEvening: this.firstEvening, example: this.exampleShown, ghost: this.ghostStone != null, stone: t?.stone ?? null, bin: t?.bin ?? null, gazed: this.gazedId, lampGaze: +this.lampGazeK.toFixed(2), idle: +(this.elapsed - this.lastActivity).toFixed(1), ghostReady: this.ghost.ready };
+        return { gazeSource: this.gazeSource, gazedBin: this.gazedBin, chosen: this.chosenId, firstEvening: this.firstEvening, example: this.exampleShown, ghost: this.ghostStone != null, stone: t?.stone ?? null, bin: t?.bin ?? null, gazed: this.gazedId, lampGaze: +this.lampGazeK.toFixed(2), idle: +(this.elapsed - this.lastActivity).toFixed(1), ghostReady: this.ghost.ready, bubbles: this.bubbles, mic: services.voice.state };
       },
       /** 22 Oct: the desk's persistent anchor (status, saved record, tonight's decision, short log). */
       anchor: () => this.deskAnchor.debug(),

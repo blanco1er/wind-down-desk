@@ -870,7 +870,13 @@ export interface OrbUniforms {
   /** v6 Breathe: the lamp becomes a soft moon (0..1), and the breath drives its glow (-1 = resting breath). */
   uMoon: { value: number };
   uBreath: { value: number };
+  /** 24 Oct (axe 4, the lamp as a presence): world direction from the globe to your eyes, and how much it attends. */
+  uLook: { value: Vector3 };
+  uLookK: { value: number };
 }
+
+/** The globe's base radius (geometry.ts LAMP.globe), for the inner march. */
+const LAMP_GLOBE_R = 0.025;
 
 export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } {
   const material = new ShaderMaterial({
@@ -886,13 +892,19 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
       uWake: { value: 0 },
       uMoon: { value: 0 },
       uBreath: { value: -1 },
+      uLook: { value: new Vector3(0, 0.3, 1) },
+      uLookK: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
       varying vec3 vWorld;
       varying vec3 vObj;
+      varying vec3 vCenter;
+      varying float vRadius;
       void main() {
         vObj = normalize(position);
+        vCenter = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        vRadius = length(modelMatrix[0].xyz) * ${LAMP_GLOBE_R.toFixed(4)};
         vec4 world = modelMatrix * vec4(position, 1.0);
         vWorld = world.xyz;
         vNormal = normalize(mat3(modelMatrix) * normal);
@@ -910,11 +922,47 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
       uniform float uWake;
       uniform float uMoon;
       uniform float uBreath;
+      uniform vec3 uLook;
+      uniform float uLookK;
       varying vec3 vNormal;
       varying vec3 vWorld;
       varying vec3 vObj;
+      varying vec3 vCenter;
+      varying float vRadius;
       ${NOISE}
       ${RIG}
+      /**
+       * The lamp's inner life (axe 4): luminous filaments drifting inside the opal (seen with depth: a short march
+       * through the globe), stirred by its voice and by yours, turning faster while it thinks; and a warm heart
+       * that turns toward your eyes, brighter when you look at it or speak.
+       */
+      vec2 innerLight(vec3 ro, vec3 rd) {
+        vec3 oc = ro - vCenter;
+        float b = dot(oc, rd);
+        float h = b * b - (dot(oc, oc) - vRadius * vRadius);
+        if (h <= 0.0) return vec2(0.0);
+        float sq = sqrt(h);
+        float t0 = -b - sq;
+        float len = 2.0 * sq;
+        float sw = uTime * (0.16 + 0.55 * uThinking) + uSpeak * 0.5;
+        float cs = cos(sw);
+        float sn = sin(sw);
+        vec3 heartAt = normalize(uLook) * (0.28 + 0.14 * uLookK);
+        float fil = 0.0;
+        float heart = 0.0;
+        for (int i = 0; i < 6; i++) {
+          vec3 p = (oc + rd * (t0 + len * (float(i) + 0.5) / 6.0)) / vRadius;
+          vec3 q = vec3(cs * p.x - sn * p.z, p.y, sn * p.x + cs * p.z);
+          float n = vnoise(q * 2.3 + vec3(0.0, uTime * 0.17, uSpeak * 0.6));
+          float f = pow(1.0 - abs(n * 2.0 - 1.0), 10.0);
+          float n2 = vnoise(q * 4.4 - vec3(uTime * 0.12, uLevel * uListening * 0.8, 0.0));
+          f += 0.55 * pow(1.0 - abs(n2 * 2.0 - 1.0), 14.0);
+          fil += f * smoothstep(1.0, 0.45, dot(p, p));
+          vec3 d = p - heartAt;
+          heart += exp(-dot(d, d) * 6.5);
+        }
+        return vec2(fil, heart) / 6.0;
+      }
       void main() {
         vec3 N = normalize(vNormal);
         vec3 V = normalize(cameraPosition - vWorld);
@@ -944,6 +992,12 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
           moon *= 0.82 + 0.3 * smoothstep(-1.0, 1.0, vObj.y + (breath - 0.5) * 1.2);
           emit = mix(emit, moon, uMoon);
         }
+        vec2 life = innerLight(cameraPosition, normalize(vWorld - cameraPosition));
+        float alive = uWake * (1.0 - uMuted * 0.8) * (1.0 - uMoon);
+        // The opal glows lower and warmer so the filaments read as threads of light inside it.
+        emit *= mix(1.0, 0.42, alive);
+        emit += vec3(1.0, 0.7, 0.38) * pow(life.x, 1.3) * (1.3 + 1.8 * uSpeak + 1.3 * uLevel * uListening + 0.7 * uThinking) * alive;
+        emit += vec3(1.0, 0.78, 0.52) * life.y * (0.28 + 0.7 * uLookK + 0.4 * uListening + 0.4 * uSpeak) * alive;
         // The glass itself: milky opal lit by the room (visible when the lamp is dim or muted).
         vec3 opal = toLinear(vec3(0.88, 0.86, 0.83));
         vec3 glass = shade(vWorld, N, V, opal, 0.22, 0.045, 0.6, 1.0) * mix(0.55, 0.25, clamp(energy, 0.0, 1.0));

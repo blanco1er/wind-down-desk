@@ -480,27 +480,31 @@ export function drawButton(label: string, accent: string, prominent: boolean, wi
  * 15.5 × 4.6 cm, text ≈ 16 mm em (≈ 29 pt at 55 cm, well above the visionOS 17 pt body). Drawn on a 768 × 228 grid at
  * half resolution (0.17 MB each on a headset), only while the grid is open.
  */
-export function drawWordChip(label: string, dim: boolean, accent: boolean): CanvasTexture {
+/** Width ratio of a "wide" chip (a suggestion bubble spanning two word columns, 32 cm instead of 15.5). */
+export const WIDE_CHIP = 2.065;
+
+export function drawWordChip(label: string, dim: boolean, accent: boolean, wide = false): CanvasTexture {
   const canvas = document.createElement('canvas');
-  const ctx = sized(canvas, 384, 114, 0.5, 0.5);
+  const W = wide ? Math.round(768 * WIDE_CHIP) : 768;
+  const ctx = sized(canvas, W / 2, 114, 0.5, 0.5);
   if (accent) {
-    roundRect(ctx, 8, 8, 752, 212, 106);
+    roundRect(ctx, 8, 8, W - 16, 212, 106);
     const fill = ctx.createLinearGradient(0, 8, 0, 220);
     fill.addColorStop(0, '#f8d39c');
     fill.addColorStop(1, DS.accent.lamp);
     ctx.fillStyle = fill;
     ctx.fill();
   } else {
-    glass(ctx, 8, 8, 752, 212, 106);
+    glass(ctx, 8, 8, W - 16, 212, 106);
   }
-  ctx.font = `600 ${label.length > 16 ? 62 : 78}px ${FONT}`;
+  ctx.font = `${wide ? 500 : 600} ${wide ? (label.length > 30 ? 66 : 74) : label.length > 16 ? 62 : 78}px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // A word already used stays readable (≈ 62 % white) with a small check before it.
   ctx.fillStyle = accent ? 'rgba(36, 26, 16, 0.94)' : dim ? 'rgba(255, 255, 255, 0.62)' : DS.text.primary;
   const w = ctx.measureText(label).width;
-  const x = dim ? 384 + 26 : 384;
-  ctx.fillText(label, x, 118, 640);
+  const x = dim ? W / 2 + 26 : W / 2;
+  ctx.fillText(label, x, 118, W - 128);
   if (dim) {
     const cx = x - Math.min(w, 640) / 2 - 44;
     ctx.strokeStyle = 'rgba(244, 194, 126, 0.85)';

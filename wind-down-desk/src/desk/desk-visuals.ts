@@ -34,7 +34,6 @@ import {
   CARD_CONTRAST,
   createCardMaterial,
   createDwellRingMaterial,
-  createGlowMaterial,
   createOrbMaterial,
   createTrayMaterial,
   KEY_LOCAL,
@@ -47,8 +46,9 @@ import {
 } from './materials.ts';
 export type { TrayUniforms };
 import { LightField } from './particles.ts';
+import { LampSpirit } from './lamp-spirit.ts';
 import { DS, Spring } from './design-tokens.ts';
-import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawWordChip, drawImmersionToggle, drawOrnament, drawPlaceChip, drawRitualChip, type CardContent } from './text-canvas.ts';
+import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawWordChip, drawImmersionToggle, WIDE_CHIP, drawOrnament, drawPlaceChip, drawRitualChip, type CardContent } from './text-canvas.ts';
 import { RITUAL_MENU, type RitualKind } from '../logic/evening.ts';
 import { createMoonGeometry } from './ritual-geometry.ts';
 
@@ -71,8 +71,8 @@ const PANE = { y: 0.235, tilt: -0.3, z: (layout: DeskLayout) => -layout.depth / 
 const GRID = { x: [-0.336, -0.168, 0, 0.168, 0.336], dy: [0.058, -0.006], w: 0.16 } as const;
 /** "Move desk here" under the Places grid, right of the immersion switch (which spans ±12.5 cm). */
 const MOVE_CHIP = { x: 0.27, w: 0.14 } as const;
-/** Touch words (quiet evening): 4 columns × 3 rows of 15.5 × 4.6 cm on the caption plane; the caption rises above. */
-const WORDS = { x: [-0.2475, -0.0825, 0.0825, 0.2475], dy: [0.05, -0.006, -0.062], lift: 0.115, max: 12 } as const;
+/** Touch words: 4 columns × 2 rows of 15.5 × 4.6 cm (24 Oct: was 3 rows, it stood over the bowls); the caption rises above. */
+const WORDS = { x: [-0.2475, -0.0825, 0.0825, 0.2475], step: 0.165, dy: [0.027, -0.027], lift: 0.09, max: 8 } as const;
 /** While the ritual menu is open by the lamp, the caption slides left so the two never overlap (ref. 02). */
 const CAPTION_ASIDE = -0.15;
 /** Replies under the caption: capsules at 70 % of the plan chips' width (owner, 19 Oct: "the blocks are big"). */
@@ -89,7 +89,13 @@ function onPane(layout: DeskLayout, dx: number, dy: number, out: Vector3): Vecto
  * bowls, tilted toward you (≤ ≈ 60 cm), and go back when they close. The caption stays at the back.
  */
 /** Touch words stay above the bowls (stones are picked below them while they are open). */
-const NEAR_WORDS = { y: 0.2, z: 0.02, tilt: -0.75, spread: 0.86 } as const;
+const NEAR_WORDS = { y: 0.29, z: 0.02, tilt: -0.5, spread: 0.86 } as const;
+/**
+ * 24 Oct (coordinator review of the first minute): no panel may ever hide the tray, the bowls or a stone. The near
+ * words sit ABOVE the seated line of sight to the bowls' back rims (≈ 0.2–0.24 m at the near plane for eyes 0.40–0.56
+ * m above the table), and the caption rises above the words by as much (`CAPTION_OVER_WORDS`), still under eye level.
+ */
+const CAPTION_OVER_WORDS = 0.135;
 /** Modal menus (Places, Move desk) come closer still: nothing else is touched while they are open. */
 const NEAR_MENU = { y: 0.25, z: 0.06, tilt: -0.7, spread: 0.8 } as const;
 type NearPane = typeof NEAR_WORDS | typeof NEAR_MENU;
@@ -168,6 +174,10 @@ export class DeskVisuals {
   energy = 0;
   private readonly worldTmp = new Vector3();
   private readonly headLocal = new Vector3();
+  private readonly eyeLocal = new Vector3();
+  /** The lamp's aura (axe 4) and what it needs each frame (no allocation). */
+  private readonly spirit: LampSpirit;
+  private readonly spiritLook = new Vector3();
   private readonly camera: { getWorldPosition(v: Vector3): Vector3 };
   private readonly ornamentUniforms: CardUniforms;
   private readonly menuSpring = new Spring(0);
@@ -177,7 +187,6 @@ export class DeskVisuals {
   /** On a real table the tray casts its (merged) contact shadow. */
   private groundedFlag = false;
   private readonly orbUniforms: OrbUniforms;
-  private readonly orbGlow: { uniforms: { uStrength: { value: number } } };
   private readonly caption: Mesh;
   private readonly captionCanvas = new CaptionCanvas();
   private readonly captionUniforms: { uOpacity: { value: number } };
@@ -231,7 +240,8 @@ export class DeskVisuals {
   private planLabelsDirty = false;
   private readonly replySpring = new Spring(0);
   /** Touch words grid (quiet evening). */
-  readonly wordChips: Array<{ mesh: Mesh; entity: Entity; uniforms: CardUniforms; label: string | null; hover: Spring }> = [];
+  /** Word chips; `col` is the centre column (0..3, halves for a wide bubble), `row` 0..1, `span` 1 or 2 columns. */
+  readonly wordChips: Array<{ mesh: Mesh; entity: Entity; uniforms: CardUniforms; label: string | null; hover: Spring; col: number; row: number; span: number }> = [];
   private wordKey = '';
   private wordsOpen = false;
   private readonly wordSpring = new Spring(0);
@@ -298,13 +308,10 @@ export class DeskVisuals {
     this.orbHome();
     Object.assign(this.orbPose, this.orbTarget);
     this.orb.renderOrder = 3;
-    const glowMaterial = createGlowMaterial(0xffb066);
-    this.orbGlow = glowMaterial;
-    const glow = new Mesh(createQuad(1, 1), glowMaterial);
-    glow.scale.setScalar(LAMP.globe * 7.5);
-    glow.renderOrder = 4;
-    glow.raycast = () => {};
-    this.orb.add(glow);
+    // 24 Oct (axe 4): the lamp's aura of living motes AND its soft halo, in one draw call (the halo was its own mesh),
+    // child of the globe so it travels and grows with it.
+    this.spirit = new LampSpirit(LAMP.globe);
+    this.orb.add(this.spirit.mesh);
     this.root.add(this.orb);
     this.orbEntity = world.createTransformEntity(this.orb, this.rootEntity);
 
@@ -380,7 +387,7 @@ export class DeskVisuals {
       this.root.add(mesh);
       const entity = world.createTransformEntity(mesh, this.rootEntity);
       const hover = new Spring(0);
-      this.wordChips.push({ mesh, entity, uniforms: material.uniforms, label: null, hover });
+      this.wordChips.push({ mesh, entity, uniforms: material.uniforms, label: null, hover, col: i % 4, row: Math.floor(i / 4), span: 1 });
       this.hover[`word:${i}`] = hover;
     }
 
@@ -812,17 +819,42 @@ export class DeskVisuals {
   }
 
   /** The quiet evening's touch words (null closes the grid and frees its textures). */
-  setWords(words: Array<{ label: string; dim: boolean; accent: boolean }> | null): void {
-    const key = words == null ? '' : words.map((w) => `${w.label}:${w.dim ? 1 : 0}${w.accent ? 1 : 0}`).join('|');
+  /**
+   * Words to touch (two rows of four), or suggestion bubbles (`wide`: a sentence spanning two columns; 24 Oct,
+   * axe 4). Rows that are not full are centred.
+   */
+  setWords(words: Array<{ label: string; dim: boolean; accent: boolean; wide?: boolean }> | null): void {
+    const key = words == null ? '' : words.map((w) => `${w.label}:${w.dim ? 1 : 0}${w.accent ? 1 : 0}${w.wide ? 1 : 0}`).join('|');
     if (key === this.wordKey) return;
     this.wordKey = key;
     this.wordsOpen = words != null && words.length > 0;
+    // Lay out: fill rows of 4 columns; a wide chip takes 2.
+    const slots: Array<{ start: number; row: number; span: number }> = [];
+    let row = 0;
+    let col = 0;
+    for (const w of words ?? []) {
+      const span = w.wide ? 2 : 1;
+      if (col + span > 4) {
+        row++;
+        col = 0;
+      }
+      slots.push({ start: col, row, span });
+      col += span;
+    }
+    const used = new Map<number, number>();
+    for (const sl of slots) used.set(sl.row, Math.max(used.get(sl.row) ?? 0, sl.start + sl.span));
     this.wordChips.forEach((chip, i) => {
       const w = words?.[i];
+      const sl = slots[i];
       if (chip.uniforms.uMap.value !== this.blank) chip.uniforms.uMap.value.dispose();
-      chip.uniforms.uMap.value = w == null ? this.blank : drawWordChip(w.label, w.dim, w.accent);
+      chip.uniforms.uMap.value = w == null ? this.blank : drawWordChip(w.label, w.dim, w.accent, w.wide === true);
       chip.mesh.visible = w != null;
       chip.label = w?.label ?? null;
+      if (sl != null) {
+        chip.span = sl.span;
+        chip.row = Math.min(sl.row, WORDS.dy.length - 1);
+        chip.col = sl.start + (sl.span - 1) / 2 + (4 - (used.get(sl.row) ?? 4)) / 2;
+      }
     });
   }
 
@@ -999,15 +1031,23 @@ export class DeskVisuals {
     // Touch menus come to you (airplane-seat test): a slow, calm glide (≈ 0.5 s).
     this.nearK = approach(this.nearK, this.menuOpen || this.wordsOpen || this.ritualsOpen ? 1 : 0, 5, dt);
     const nk = this.nearK * this.nearK * (3 - 2 * this.nearK);
-    this.captionDy = lift * 0.05 + tk * 0.03 + moonLift + wk * WORDS.lift * (1 - nk);
+    // A lower head sees the near words higher against the far caption (parallax): the caption rises a little more.
+    let over = CAPTION_OVER_WORDS;
+    if (wk > 0.01 && nk > 0.01) {
+      this.root.updateMatrixWorld();
+      this.root.worldToLocal(this.camera.getWorldPosition(this.eyeLocal));
+      over += Math.min(0.05, Math.max(0, (0.48 - this.eyeLocal.y) * 0.55));
+    }
+    this.captionDy = lift * 0.05 + tk * 0.03 + moonLift + wk * WORDS.lift * (1 - nk) + wk * nk * over;
     onPane(this.layout, aside * CAPTION_ASIDE, this.captionDy, this.caption.position);
     this.wordChips.forEach((chip, i) => {
-      chip.mesh.rotation.x = onNearPane(this.layout, WORDS.x[i % 4] * this.chipK, WORDS.dy[Math.floor(i / 4)] * this.chipK, nk, chip.mesh.position, NEAR_WORDS);
+      chip.mesh.rotation.x = onNearPane(this.layout, (WORDS.x[0] + chip.col * WORDS.step) * this.chipK, WORDS.dy[chip.row] * this.chipK, nk, chip.mesh.position, NEAR_WORDS);
       const hover = chip.hover.step(dt);
       chip.uniforms.uOpacity.value = Math.min(1, Math.max(0, wk * 1.3 - (i % 4) * 0.06)) * (1 - this.dim * 0.3) * this.uiK;
       chip.uniforms.uHighlight.value = hover;
       // Closer menus are spread tighter: the chips shrink by as much, so they never overlap (same angle to the eye).
-      chip.mesh.scale.setScalar((0.94 + 0.06 * wk) * (1 + 0.05 * hover) * this.chipK * (1 + (NEAR_WORDS.spread - 1) * nk));
+      const ws = (0.94 + 0.06 * wk) * (1 + 0.05 * hover) * this.chipK * (1 + (NEAR_WORDS.spread - 1) * nk);
+      chip.mesh.scale.set(ws * (chip.span === 2 ? WIDE_CHIP : 1), ws, 1);
       // A word that stepped aside (ritual menu open) cannot be touched either.
       chip.mesh.visible = chip.label != null && wk > 0.02;
     });
@@ -1135,7 +1175,7 @@ export class DeskVisuals {
     const energy = (0.62 + this.orbListening * 0.45 + o.uLevel.value * 0.8 + o.uHover.value * 0.25 + this.speak * 0.4 + o.uThinking.value * 0.2) * wakeK * (1 - this.orbMuted * 0.8) * life * evening;
     // The moon's halo is wider and warmer than the little lamp's (the glow quad scales with the globe).
     const moon = this.orbUniforms.uMoon.value;
-    this.orbGlow.uniforms.uStrength.value = (0.16 + energy * 0.3) * (1 - this.dim * 0.4) * (1 + moon * 1.1);
+    const halo = (0.16 + energy * 0.3) * (1 - this.dim * 0.4) * (1 + moon * 1.1);
     this.energy = energy;
     // The globe never leaves its foot (v6 review): the lamp travels and grows as one object.
     m.uLampGlow.value = energy;
@@ -1147,6 +1187,24 @@ export class DeskVisuals {
     this.root.updateMatrixWorld();
     this.orb.getWorldPosition(this.worldTmp);
     rig.uOrbPos.value.copy(this.worldTmp);
+    // The lamp looks at you: its heart and its aura turn toward your eyes (world direction for the globe's shader,
+    // the globe's own space for the aura).
+    this.camera.getWorldPosition(this.spiritLook);
+    o.uLook.value.copy(this.spiritLook).sub(this.worldTmp).normalize();
+    o.uLookK.value = Math.min(1, o.uHover.value / 0.6);
+    this.orb.worldToLocal(this.spiritLook).normalize();
+    this.spirit.update(
+      {
+        energy,
+        speak: this.speak,
+        listen: this.orbListening * Math.min(1, 0.35 + o.uLevel.value * 2),
+        think: o.uThinking.value,
+        lookK: o.uLookK.value,
+        alpha: wakeK * (1 - out) * (1 - moonK) * (1 - this.orbMuted * 0.7) * this.reveal,
+        halo,
+      },
+      this.spiritLook,
+    );
     rig.uOrbRadius.value = LAMP.globe * s;
     rig.uOrbEnergy.value = energy * this.reveal;
     // A few golden motes drift up around the lamp (the dust field already exists: no extra draw call).

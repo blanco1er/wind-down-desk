@@ -33,6 +33,8 @@ export const EVENTS: Record<string, readonly string[]> = {
   /** 24 Oct: agent memory — a follow-up asked / answered (done, not-yet), and "forget everything". */
   'follow-up': ['answer'],
   forget: [],
+  /** 24 Oct (axe 4): a suggestion bubble touched (worry / done), never its text. */
+  bubble: ['kind'],
   'xr-enter': ['mode'],
   'xr-exit': ['secs'],
   placed: ['source', 'mode'],

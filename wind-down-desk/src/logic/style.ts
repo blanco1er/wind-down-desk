@@ -32,7 +32,8 @@ export function writeStyle(store: StyleStore | null, style: EveningStyle): void 
 }
 
 /** The topics a quiet Unload offers as touchable words (each becomes an engraved stone). */
-export const QUIET_TOPICS: readonly string[] = ['Work', 'Messages', 'Money', 'Health', 'Family', 'Home', 'Plans', 'Someone', 'A worry'];
+/** 24 Oct: six topics (two rows of four with Write… and That's all): the grid never stands over the tray or the caption. */
+export const QUIET_TOPICS: readonly string[] = ['Work', 'Money', 'Health', 'Family', 'Someone', 'A worry'];
 export const WRITE_LABEL = 'Write…';
 export const DONE_LABEL = "That's all";
 
@@ -44,7 +45,7 @@ export function unloadChoices(used: ReadonlySet<string>, stones: number): Array<
   return list;
 }
 
-/** The touch grid for Release: tonight's stones (Let go first, no duplicates, at most 9), then Write…. */
+/** The touch grid for Release: tonight's stones (Let go first, no duplicates, at most 7), then Write…. */
 export function releaseChoices(letGo: readonly string[], others: readonly string[]): Array<{ label: string; dim: boolean; accent: boolean }> {
   const seen = new Set<string>();
   const titles: string[] = [];
@@ -53,7 +54,7 @@ export function releaseChoices(letGo: readonly string[], others: readonly string
     if (k.length === 0 || seen.has(k.toLowerCase())) continue;
     seen.add(k.toLowerCase());
     titles.push(k);
-    if (titles.length === 9) break;
+    if (titles.length === 7) break;
   }
   return [...titles.map((label) => ({ label, dim: false, accent: false })), { label: WRITE_LABEL, dim: false, accent: false }];
 }
