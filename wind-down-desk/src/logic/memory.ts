@@ -50,6 +50,8 @@ export interface MemoryData {
   morningSeen: string | null;
   /** 23 Oct (agent memory): "Tomorrow" items the person said were done, and the evening they said it. */
   done?: Array<{ text: string; date: string }>;
+  /** 26 Oct (lot 2b): milestones (3, 7, 21 evenings) already celebrated in the lamp — each one shown once. */
+  celebrated?: number[];
 }
 
 /** What the lamp remembers when you come back (all on this device, never on a server). */
@@ -108,7 +110,7 @@ export function isMorning(now: Date): boolean {
 }
 
 function emptyData(): MemoryData {
-  return { version: 1, nights: [], stars: [], laterPool: [], morningSeen: null, done: [] };
+  return { version: 1, nights: [], stars: [], laterPool: [], morningSeen: null, done: [], celebrated: [] };
 }
 
 export class RitualMemory {
@@ -139,6 +141,7 @@ export class RitualMemory {
         laterPool: Array.isArray(parsed.laterPool) ? parsed.laterPool : [],
         morningSeen: typeof parsed.morningSeen === 'string' ? parsed.morningSeen : null,
         done: Array.isArray(parsed.done) ? parsed.done.filter((d) => d != null && typeof d.text === 'string' && typeof d.date === 'string') : [],
+        celebrated: Array.isArray(parsed.celebrated) ? parsed.celebrated.filter((m) => typeof m === 'number') : [],
       };
     } catch {
       return emptyData();
@@ -246,6 +249,24 @@ export class RitualMemory {
       cursor--;
     }
     return count;
+  }
+
+  /** Evenings you came back for before tonight (tonight counts tomorrow): the constellation's progress. */
+  evenings(): number {
+    const tonight = eveningDate(this.now());
+    return this.data.nights.filter((n) => n.date !== tonight).length;
+  }
+
+  /** Milestones already shown in the lamp (each one once). */
+  celebrated(): number[] {
+    return this.data.celebrated ?? [];
+  }
+
+  celebrate(milestone: number): void {
+    const list = this.data.celebrated ?? [];
+    if (!list.includes(milestone)) list.push(milestone);
+    this.data.celebrated = list;
+    this.save();
   }
 
   totalLetGo(): number {
@@ -402,6 +423,10 @@ export class RitualMemory {
       letGo.forEach((text, i) => data.stars.push({ text, date, seed: hash32(`${date}|${text}|${data.stars.length + i}`) }));
     }
     data.morningSeen = null;
+    // Demo history: the milestones before the last one reached were celebrated on their evenings (the film shows
+    // the last one arriving tonight).
+    const reached = [3, 7, 21].filter((m) => evenings >= m);
+    data.celebrated = reached.slice(0, -1);
     this.data = data;
     this.save();
   }

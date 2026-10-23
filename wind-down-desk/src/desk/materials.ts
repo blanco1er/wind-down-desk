@@ -17,6 +17,7 @@ import {
   AdditiveBlending,
   CanvasTexture,
   Color,
+  DataTexture,
   DoubleSide,
   ShaderMaterial,
   Texture,
@@ -873,7 +874,40 @@ export interface OrbUniforms {
   /** 24 Oct (axe 4, the lamp as a presence): world direction from the globe to your eyes, and how much it attends. */
   uLook: { value: Vector3 };
   uLookK: { value: number };
+  /**
+   * 26 Oct (the lamp shows the places): how much the globe is a window onto a place (0..1), that place's preview
+   * panorama (equirectangular, row 0 at the zenith), and its look: x = yaw (place yaw + desk yaw, as the backdrop),
+   * y = exposure, z = saturation, w = day-for-night; uPlaceTint = the place grade's tint.
+   */
+  uWindow: { value: number };
+  uPlaceTex: { value: Texture };
+  uPlaceA: { value: Vector4 };
+  uPlaceTint: { value: Vector3 };
+  /** The globe grown to show the places: its own glow is softened (a 17 cm lamp at full glow would dazzle). */
+  uGrown: { value: number };
+  /** Brightness of the place in the glass (auto: a bright moonlit beach and a dark clearing read alike). */
+  uPlaceGain: { value: number };
+  /**
+   * 26 Oct (lot 2b, progress inside the lamp): how much the globe shows your sky (0..1); the dust of stars (one per
+   * thing let go: count); the constellation's points (x, y on the glass disk, z = lit 0..1, w = sparkle), how many,
+   * and how much of its lines are drawn.
+   */
+  uSky: { value: number };
+  uSkyDust: { value: number };
+  uFig: { value: Vector4[] };
+  uFigN: { value: number };
+  uFigLines: { value: number };
 }
+
+/** Points of the largest constellation figure (logic/milestones.ts FIGURES[21]). */
+export const FIG_MAX = 21;
+
+/** Black 1 × 1 until a place preview is loaded. */
+const NO_PLACE = (() => {
+  const t = new DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  t.needsUpdate = true;
+  return t;
+})();
 
 /** The globe's base radius (geometry.ts LAMP.globe), for the inner march. */
 const LAMP_GLOBE_R = 0.025;
@@ -894,6 +928,17 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
       uBreath: { value: -1 },
       uLook: { value: new Vector3(0, 0.3, 1) },
       uLookK: { value: 0 },
+      uWindow: { value: 0 },
+      uPlaceTex: { value: NO_PLACE },
+      uPlaceA: { value: new Vector4(0, 1, 1, 0) },
+      uPlaceTint: { value: new Vector3(1, 1, 1) },
+      uGrown: { value: 0 },
+      uPlaceGain: { value: 2.6 },
+      uSky: { value: 0 },
+      uSkyDust: { value: 0 },
+      uFig: { value: Array.from({ length: FIG_MAX }, () => new Vector4(0, 0, 0, 0)) },
+      uFigN: { value: 0 },
+      uFigLines: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -924,6 +969,17 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
       uniform float uBreath;
       uniform vec3 uLook;
       uniform float uLookK;
+      uniform float uWindow;
+      uniform sampler2D uPlaceTex;
+      uniform vec4 uPlaceA;
+      uniform vec3 uPlaceTint;
+      uniform float uGrown;
+      uniform float uPlaceGain;
+      uniform float uSky;
+      uniform float uSkyDust;
+      uniform vec4 uFig[${FIG_MAX}];
+      uniform float uFigN;
+      uniform float uFigLines;
       varying vec3 vNormal;
       varying vec3 vWorld;
       varying vec3 vObj;
@@ -963,6 +1019,90 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
         }
         return vec2(fil, heart) / 6.0;
       }
+      /**
+       * The lamp shows a place (26 Oct): the glass is a lens onto it. The centre of the globe shows the place in
+       * the direction you see the globe from (at the horizon), the rim ≈ 55° around it, so moving your head looks
+       * around inside, like a window. Same mapping and grade as the backdrop: arriving shows what the globe showed.
+       * One texture read per pixel, no second render of the scene.
+       */
+      vec3 placeWindow(vec3 N) {
+        vec3 toGlobe = vCenter - cameraPosition;
+        vec3 F = normalize(vec3(toGlobe.x, 0.0, toGlobe.z));
+        vec3 R = normalize(cross(F, vec3(0.0, 1.0, 0.0)));
+        vec3 U = vec3(0.0, 1.0, 0.0);
+        // Where the pixel sits on the glass disk seen from the eye (−1..1), with the lens squeeze of a ball.
+        vec3 Vd = normalize(toGlobe);
+        vec3 Rd = normalize(cross(Vd, vec3(0.0, 1.0, 0.0)));
+        vec3 Ud = cross(Rd, Vd);
+        vec2 disk = vec2(dot(N, Rd), dot(N, Ud));
+        float r = min(length(disk), 1.0);
+        float th = asin(r) * (0.78 / 1.5708);
+        vec2 dir2 = r > 1e-4 ? disk / r : vec2(0.0);
+        // Look slightly up into the place: its horizon sits a little below the globe's middle.
+        vec3 d = normalize(F * cos(th) + (R * dir2.x + U * dir2.y) * sin(th) + U * 0.1);
+        // Longitude relative to the globe's own direction (no wrap inside the glass: mipmaps stay seamless).
+        float u = (atan(F.x, -F.z) + atan(dot(d, R), dot(d, F)) + uPlaceA.x) / 6.2831853 + 0.5;
+        float v = 0.5 - asin(clamp(d.y, -1.0, 1.0)) / 3.1415927;
+        vec3 c = pow(texture2D(uPlaceTex, vec2(u, v)).rgb, vec3(2.2));
+        float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        float sky = smoothstep(0.25, 0.7, luma) * smoothstep(-0.05, 0.25, d.y);
+        vec3 col = mix(vec3(luma), c, uPlaceA.z) * uPlaceTint * uPlaceA.y;
+        col = mix(col, vec3(0.006, 0.011, 0.024) + vec3(luma) * vec3(0.01, 0.015, 0.03), sky * uPlaceA.w);
+        // A night place seen through glass: lifted so it reads at arm's length, a little darker at the rim.
+        col *= uPlaceGain;
+        // Soft shoulder: a moon or a lit window never burns into flat beige.
+        col = col / (1.0 + 0.6 * col);
+        return col * (1.0 - 0.4 * r * r * r);
+      }
+      float skyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float segDist(vec2 p, vec2 a, vec2 b) {
+        vec2 ab = b - a;
+        float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+        return length(p - a - ab * t);
+      }
+      /**
+       * Your sky inside the lamp (lot 2b): a deep night in the glass; a fine dust of stars, one per thing you let go
+       * of; and your constellation, one point per evening you came back, its lines drawn as it completes.
+       * Everything on the glass disk you see (it faces you), a touch of depth as the head moves.
+       */
+      vec3 skyWindow(vec3 N) {
+        vec3 toGlobe = normalize(vCenter - cameraPosition);
+        vec3 Rd = normalize(cross(toGlobe, vec3(0.0, 1.0, 0.0)));
+        vec3 Ud = cross(Rd, toGlobe);
+        vec2 disk = vec2(dot(N, Rd), dot(N, Ud));
+        float r = length(disk);
+        vec3 col = mix(vec3(0.004, 0.006, 0.016), vec3(0.012, 0.014, 0.03), smoothstep(-1.0, 1.0, disk.y));
+        col += vec3(0.05, 0.03, 0.012) * smoothstep(0.2, -1.0, disk.y) * 0.5;
+        // Dust: one star per thing let go (a cell lights when the count reaches its rank).
+        vec2 g = (disk + 1.0) * 9.0;
+        vec2 cell = floor(g);
+        float h = skyHash(cell);
+        float rank = floor(skyHash(cell + 17.3) * 324.0);
+        if (rank < uSkyDust && h > 0.0) {
+          vec2 at = (cell + 0.25 + 0.5 * vec2(h, skyHash(cell + 4.1))) / 9.0 - 1.0;
+          float d = length(disk - at);
+          float tw = 0.75 + 0.25 * sin(uTime * (0.8 + h * 2.0) + h * 40.0);
+          col += vec3(1.0, 0.93, 0.82) * exp(-d * d / 0.00009) * 0.9 * tw;
+        }
+        // The constellation: lit points glow (the newest sparkles), the ones still to come are faint rings.
+        for (int i = 0; i < ${FIG_MAX}; i++) {
+          if (float(i) >= uFigN) break;
+          vec4 f = uFig[i];
+          float d = length(disk - f.xy);
+          float lit = f.z;
+          col += vec3(1.0, 0.86, 0.62) * (exp(-d * d / 0.0005) * 1.6 + exp(-d * d / 0.006) * 0.22) * lit * (1.0 + f.w * (0.6 + 0.4 * sin(uTime * 6.0)));
+          col += vec3(0.6, 0.62, 0.7) * smoothstep(0.006, 0.0, abs(d - 0.022)) * 0.22 * (1.0 - lit);
+          if (i + 1 < ${FIG_MAX} && float(i + 1) < uFigN) {
+            vec4 n = uFig[i + 1];
+            float both = min(lit, n.z);
+            if (both > 0.01) {
+              float sd = segDist(disk, f.xy, n.xy);
+              col += vec3(1.0, 0.74, 0.42) * exp(-sd * sd / 0.000025) * 0.55 * both * uFigLines;
+            }
+          }
+        }
+        return col * (1.0 - 0.35 * r * r * r);
+      }
       void main() {
         vec3 N = normalize(vNormal);
         vec3 V = normalize(cameraPosition - vWorld);
@@ -993,7 +1133,7 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
           emit = mix(emit, moon, uMoon);
         }
         vec2 life = innerLight(cameraPosition, normalize(vWorld - cameraPosition));
-        float alive = uWake * (1.0 - uMuted * 0.8) * (1.0 - uMoon);
+        float alive = uWake * (1.0 - uMuted * 0.8) * (1.0 - uMoon) * (1.0 - 0.85 * uWindow);
         // The opal glows lower and warmer so the filaments read as threads of light inside it.
         emit *= mix(1.0, 0.42, alive);
         emit += vec3(1.0, 0.7, 0.38) * pow(life.x, 1.3) * (1.3 + 1.8 * uSpeak + 1.3 * uLevel * uListening + 0.7 * uThinking) * alive;
@@ -1002,7 +1142,17 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
         vec3 opal = toLinear(vec3(0.88, 0.86, 0.83));
         vec3 glass = shade(vWorld, N, V, opal, 0.22, 0.045, 0.6, 1.0) * mix(0.55, 0.25, clamp(energy, 0.0, 1.0));
         glass = mix(glass, glass * vec3(0.86, 0.92, 1.05), uMuted);
-        vec3 col = glass * (1.0 - 0.75 * uMoon) + emit;
+        vec3 col = glass * (1.0 - 0.75 * uMoon) + emit * (1.0 - 0.6 * uGrown);
+        if (uWindow > 0.001) {
+          // The place inside the glass; the lamp's own warmth stays as a faint glow at the rim.
+          // Clear glass over it: a cool sheen at grazing angles (the warm opal is gone while it shows).
+          vec3 sheen = vec3(0.55, 0.62, 0.72) * pow(1.0 - facing, 2.5) * 0.12;
+          col = mix(col, placeWindow(N) + sheen, uWindow);
+        }
+        if (uSky > 0.001) {
+          vec3 sheen = vec3(0.55, 0.62, 0.72) * pow(1.0 - facing, 2.5) * 0.12;
+          col = mix(col, skyWindow(N) + sheen, uSky);
+        }
         // A small window highlight of the room key light, and a thin milky rim.
         vec3 H = normalize(uKeyDir + V);
         col += uKeyColor * pow(max(dot(N, H), 0.0), 160.0) * 0.5;

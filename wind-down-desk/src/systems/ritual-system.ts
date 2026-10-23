@@ -49,6 +49,8 @@ const BUBBLES_BEFORE_EXAMPLE = 14;
 import { EXAMPLE_STONE, ghostFrame, ghostTarget, onboardingStep, SPOKEN_EXAMPLE } from '../logic/onboarding.ts';
 import { GhostHand, HandLook } from '../desk/hands.ts';
 import { followUpQuestion, starPosition, type Recall } from '../logic/memory.ts';
+import { figureFor, isSkyCommand, KEEPSAKE, MILESTONES, milestoneLine, milestoneToCelebrate, plantGrowth, type Milestone } from '../logic/milestones.ts';
+import { KEEPSAKE_AT } from '../desk/keepsakes.ts';
 import { fallbackFrame, frameOnTable, type HeadPose, type PlaneCandidate } from '../logic/placement.ts';
 import { chooseSurface, meshTop, type MeshBox, type SurfaceChoice } from '../logic/surfaces.ts';
 import { bearingCaption, bearingOf, decideAfterRestore, type Bearing, type PlaceSource, type RestoreDecision } from '../logic/desk-anchor.ts';
@@ -62,11 +64,11 @@ import { LampVoice } from '../desk/lamp-voice.ts';
 import { DEMO_BRAIN_DUMP } from '../shared/agent/demo.ts';
 import type { TomorrowPlan } from '../shared/agent/types.ts';
 import { DS, Spring } from '../desk/design-tokens.ts';
-import { DeskVisuals } from '../desk/desk-visuals.ts';
+import { DeskVisuals, PLACES_IN_GLOBE } from '../desk/desk-visuals.ts';
 import { bowlFloorAt, createPebbleGeometry, TRAY } from '../desk/geometry.ts';
 import { createStoneMaterial, linkShared, STONE_LABEL, type StoneUniforms } from '../desk/materials.ts';
 import { normalize } from '../logic/text.ts';
-import { isPlaceId, parsePlaceCommand, PLACE_IDS, PLACES, type Immersion, type PlaceId } from '../logic/places.ts';
+import { isPlaceId, parseGlobeCommand, parsePlaceCommand, PLACE_IDS, PLACES, type Immersion, type PlaceId } from '../logic/places.ts';
 import { rig, timeUniform } from '../desk/materials.ts';
 import { masterSound, setMasterSound, SoundBank } from '../desk/sounds.ts';
 import { StoneAtlas } from '../desk/text-canvas.ts';
@@ -385,6 +387,9 @@ export class RitualSystem extends createSystem({
     this.masterApplied = false;
     for (const chip of this.visuals.placeChips) {
       chip.entity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: `place:${chip.id}` });
+    }
+    for (const b of this.visuals.globeButtons) {
+      b.entity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: b.action });
     }
     // v6: the ritual ornament ("Rituals", or "Finish" during a ritual) and the menu rows.
     this.rv = new RitualVisuals(this.world, this.visuals);
@@ -728,6 +733,8 @@ export class RitualSystem extends createSystem({
     // v6: the lamp proposes a ritual (time, tonight, what it hears); the person decides.
     this.mode = 'choose';
     this.sounds.preloadRituals();
+    // 26 Oct (lot 2b): your keepsakes on the table, and — on an evening you came back for — your sky in the lamp.
+    this.arrivalSky();
     // 23 Oct: a first evening (a judge's cold start) goes straight to the core gesture — no question first.
     if (this.firstEvening) {
       this.lastActivity = this.elapsed;
@@ -742,6 +749,60 @@ export class RitualSystem extends createSystem({
       return;
     }
     this.propose(null, `${where.length > 0 ? `${where} ` : ''}${recall.sentence ?? services.memory.welcomeLine()}`);
+  }
+
+  /**
+   * Lot 2b (owner's go-ahead, 26 Oct): progress shown inside the lamp. The keepsakes already earned stand on the
+   * table at once; on an evening you came back for, once the desk is revealed, the lamp floats up and shows your
+   * sky (the last evening's point lights as you watch). A milestone (3, 7, 21 evenings) completes the figure and
+   * leaves its keepsake on the table — once, with one plain line.
+   */
+  private arrivalSky(): void {
+    const memory = services.memory;
+    const evenings = memory.evenings();
+    const celebrated = memory.celebrated();
+    const have = MILESTONES.filter((m) => evenings >= m && celebrated.includes(m)).map((m) => KEEPSAKE[m]);
+    this.visuals.keepsakes.set(have, plantGrowth(evenings));
+    if (evenings === 0) return;
+    const milestone = milestoneToCelebrate(evenings, celebrated);
+    const start = (tries: number) => {
+      if (!this.visuals.uiShown && tries < 40) {
+        window.setTimeout(() => start(tries + 1), 150);
+        return;
+      }
+      if (this.mode !== 'choose' && this.mode !== 'unload') return;
+      this.showSky(true, milestone != null ? 9 : 6);
+      if (milestone != null) window.setTimeout(() => this.celebrate(milestone), 3200);
+    };
+    window.setTimeout(() => start(0), 600);
+  }
+
+  /** The lamp shows your sky (at arrival, or when asked: "show me my sky"). */
+  private showSky(fresh: boolean, seconds = 7): void {
+    const memory = services.memory;
+    const evenings = memory.evenings();
+    if (evenings === 0 && memory.totalLetGo() === 0) {
+      this.flash('Your sky starts tonight: a star for each thing you let go.', 3.5);
+      return;
+    }
+    const f = figureFor(evenings);
+    this.visuals.showSky(f.points, f.lit, memory.totalLetGo(), seconds, fresh, f.complete);
+    track('sky', { evenings: Math.min(evenings, 99) }, `sky:${fresh ? 'arrival' : 'asked'}`);
+  }
+
+  private celebrate(m: Milestone): void {
+    const k = KEEPSAKE[m];
+    services.memory.celebrate(m);
+    this.visuals.keepsakes.arrive(k);
+    const at = KEEPSAKE_AT[k];
+    if (this.frame != null) {
+      const w = deskToWorld(this.frame, { x: at.x, y: 0.012, z: at.z }, this.world3);
+      this.visuals.lights.star(w.x, w.y, w.z, 0.03, 0xffe2b8, 3);
+      this.sounds.play('pearl', w.x, w.y, w.z);
+    }
+    const { line, sub } = milestoneLine(m);
+    this.flash(line, 5.5, sub);
+    track('milestone', { m }, `milestone:${m}`);
   }
 
   private startFollowUps(recall: Recall): void {
@@ -822,6 +883,8 @@ export class RitualSystem extends createSystem({
           this.ask = null;
           services.memory.forget();
           this.visuals.lights.clearStars();
+          this.visuals.hideSky();
+          this.visuals.keepsakes.set([], 0);
           track('forget', {});
           this.flash('Forgotten. Nothing from before is kept here.', 4);
         },
@@ -1149,6 +1212,10 @@ export class RitualSystem extends createSystem({
         return;
       }
     }
+    if (isSkyCommand(normalize(clean))) {
+      this.showSky(false);
+      return;
+    }
     if (isForgetCommand(normalize(clean))) {
       this.confirmForget();
       return;
@@ -1162,11 +1229,18 @@ export class RitualSystem extends createSystem({
       this.recenter();
       return;
     }
+    const globeCommand = PLACES_IN_GLOBE && this.visuals.placesOpen ? parseGlobeCommand(normalize(clean)) : null;
+    if (globeCommand != null) {
+      if (globeCommand === 'next' || globeCommand === 'previous') this.stepGlobe(globeCommand === 'next' ? 1 : -1);
+      else if (globeCommand === 'choose') this.chooseGlobePlace('voice');
+      else this.visuals.openPlaces(false);
+      return;
+    }
     const placeCommand = parsePlaceCommand(normalize(clean));
     if (placeCommand != null) {
       if (placeCommand.type === 'places') {
-        this.visuals.openPlaces(true);
-        this.flash('Where would you like to be?', 3, 'Say "the lake", "the garden", "the hilltop" or "my room".');
+        this.openGlobePlaces();
+        this.flash('Where would you like to be?', 3, PLACES_IN_GLOBE ? 'Say "next", "this one", or a place: "the lake", "the beach".' : 'Say "the lake", "the garden", "the hilltop" or "my room".');
       } else if (placeCommand.type === 'place') {
         void this.goPlace(placeCommand.place, 'voice');
       } else {
@@ -1306,7 +1380,7 @@ export class RitualSystem extends createSystem({
     this.lastActivity = this.elapsed;
     // A stone in the hand (or just let go of) means the hand is busy: desk controls next to the bowls ignore it.
     // 1.6 s: the hand coming back from the Let go bowl passes over the lamp (found while filming v5).
-    const nearLamp = action === 'orb' || action === 'places' || action === 'voice' || action === 'rituals' || action.startsWith('place:') || action.startsWith('ritual:');
+    const nearLamp = action === 'orb' || action === 'places' || action === 'voice' || action === 'rituals' || action.startsWith('place:') || action.startsWith('ritual:') || action.startsWith('globe-');
     if (nearLamp && (this.queries.held.entities.size > 0 || this.queries.weightHeld.entities.size > 0 || this.elapsed - this.lastDropAt < 1.6)) {
       return;
     }
@@ -1362,8 +1436,22 @@ export class RitualSystem extends createSystem({
       return;
     }
     if (action === 'places') {
-      this.visuals.openPlaces(!this.visuals.placesOpen);
+      this.openGlobePlaces();
       this.cue('tock', { x: this.layout.orb.x, y: 0.02, z: this.layout.orb.z + 0.07 });
+      return;
+    }
+    if (action === 'globe-prev' || action === 'globe-next') {
+      this.stepGlobe(action === 'globe-next' ? 1 : -1);
+      return;
+    }
+    if (action === 'globe-close') {
+      this.visuals.openPlaces(false);
+      this.cue('tock', { x: this.layout.orb.x, y: 0.02, z: this.layout.orb.z + 0.07 });
+      return;
+    }
+    // The lamp shows a place: touching it (or looking at it, or pinching while you look) takes you there.
+    if (action === 'orb' && PLACES_IN_GLOBE && this.visuals.placesOpen) {
+      this.chooseGlobePlace('hand');
       return;
     }
     if (action.startsWith('place:')) {
@@ -1446,6 +1534,47 @@ export class RitualSystem extends createSystem({
   }
 
   // ----------------------------------------------------------------- places
+
+  /**
+   * 26 Oct (the lamp shows the places): Places opens inside the lamp. In your room it starts on the last place you
+   * chose (else the lake); in a place, on that place. The title says how to choose with what this person uses.
+   */
+  private openGlobePlaces(): void {
+    if (!PLACES_IN_GLOBE) {
+      this.visuals.openPlaces(!this.visuals.placesOpen);
+      return;
+    }
+    if (this.visuals.placesOpen) return;
+    this.visuals.setGlobeHint(this.access.gazeSelect ? 'Look at the lamp to go there' : services.style.quiet ? 'Touch the lamp to go there' : 'Touch the lamp, or say "this one"');
+    this.visuals.openPlaces(true);
+    if (this.visuals.backdrop.place === 'room') {
+      let last: string | null = null;
+      try {
+        last = localStorage.getItem(LAST_PLACE_KEY);
+      } catch {
+        last = null;
+      }
+      this.visuals.showInGlobe(last != null && isPlaceId(last) && last !== 'room' ? last : 'moon-lake');
+    }
+    track('globe', { step: 'open' }, 'globe:open');
+  }
+
+  private stepGlobe(step: number): void {
+    const id = this.visuals.stepGlobe(step);
+    this.lastActivity = this.elapsed;
+    this.sounds.play('pearl', this.visuals.orb.getWorldPosition(this.v2).x, this.v2.y, this.v2.z);
+    track('globe', { step: step > 0 ? 'next' : 'previous', id }, `globe:${id}`);
+  }
+
+  private chooseGlobePlace(via: 'hand' | 'voice'): void {
+    const id = this.visuals.globePlace;
+    track('globe', { step: 'choose', id }, `globe-choose:${id}`);
+    if (id === this.visuals.backdrop.place) {
+      this.visuals.openPlaces(false);
+      return;
+    }
+    void this.goPlace(id, via);
+  }
 
   /** Changes place (crossfade, the desk light follows). Your room is always one word away. */
   private async goPlace(id: PlaceId, via: 'hand' | 'voice'): Promise<void> {
@@ -1630,6 +1759,8 @@ export class RitualSystem extends createSystem({
   /** Starts a ritual (ending any other gently). `carry`: words heard by the agent, used by the ritual. */
   private startRitual(kind: RitualKind, carry?: string, via: 'hand' | 'voice' = 'hand', intro?: string): void {
     track('ritual-start', { kind, via }, `ritual-start:${kind}`);
+    // The lamp leaves your sky for the ritual (the milestone, if any, is already on the table).
+    this.visuals.hideSky();
     // A ritual chosen during the follow-ups: the remaining stones simply stay on the desk.
     if (this.followUps.length > 0) {
       this.followUps = [];
@@ -3309,6 +3440,12 @@ export class RitualSystem extends createSystem({
    * glass button stays a button.
    */
   private onSelectStart(source: XRInputSource): void {
+    // The lamp shows a place: look at it and pinch (anywhere) to go there. A pinch on a glass button stays a button.
+    if (PLACES_IN_GLOBE && this.visuals.placesOpen && this.gazeFocus.focused === 'lamp' && this.queries.hovered.entities.size === 0) {
+      this.lastActivity = this.elapsed;
+      this.chooseGlobePlace('hand');
+      return;
+    }
     if (this.mode !== 'unload' || (this.ritual.phase !== 'dump' && this.ritual.phase !== 'sort')) return;
     if (this.queries.held.entities.size > 0 || this.queries.hovered.entities.size > 0) return;
     const side = source.handedness === 'left' ? 'left' : 'right';
@@ -3551,6 +3688,19 @@ export class RitualSystem extends createSystem({
       living: () => this.visuals.living.debug(),
       /** Axe 5: the panorama's ground projected on the real ground (motion parallax, stereo) — on/off for A/B. */
       groundParallax: (on: boolean) => this.visuals.living.setGroundParallax(on),
+      /** Lot 2b: show the sky now (as asked by voice), and the state of the keepsakes on the table. */
+      sky: (fresh = false) => {
+        this.showSky(fresh);
+        return { evenings: services.memory.evenings(), celebrated: services.memory.celebrated(), keepsakes: this.visuals.keepsakes.shown, shown: this.visuals.skyShown };
+      },
+      /** The lamp shows the places: state, and the same moves as the buttons (tests, films). */
+      globe: (move?: 'open' | 'next' | 'previous' | 'choose' | 'close') => {
+        if (move === 'open') this.openGlobePlaces();
+        else if (move === 'next' || move === 'previous') this.stepGlobe(move === 'next' ? 1 : -1);
+        else if (move === 'choose') this.chooseGlobePlace('hand');
+        else if (move === 'close') this.visuals.openPlaces(false);
+        return { open: this.visuals.placesOpen, place: this.visuals.globePlace, previews: this.visuals.globePreviewCount, window: +this.visuals.globeWindow.toFixed(2), ...this.visuals.globeDebug, scale: +this.visuals.orbScale.toFixed(2) };
+      },
       /** HD places: force on / off (null = this GPU decides), and the state of each place on the GPU. */
       hd: (on?: boolean | null) => {
         if (on !== undefined) this.visuals.backdrop.hdForced = on;

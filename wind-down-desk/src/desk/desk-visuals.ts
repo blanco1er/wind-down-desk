@@ -48,9 +48,22 @@ export type { TrayUniforms };
 import { LightField } from './particles.ts';
 import { LampSpirit } from './lamp-spirit.ts';
 import { DS, Spring } from './design-tokens.ts';
-import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawWordChip, drawImmersionToggle, WIDE_CHIP, drawOrnament, drawPlaceChip, drawRitualChip, type CardContent } from './text-canvas.ts';
+import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawGlobeButton, drawGlobeLabel, drawWordChip, drawImmersionToggle, WIDE_CHIP, drawOrnament, drawPlaceChip, drawRitualChip, type CardContent } from './text-canvas.ts';
+import { PlacePreviews } from './place-preview.ts';
+import { Keepsakes } from './keepsakes.ts';
+import { FIG_MAX } from './materials.ts';
 import { RITUAL_MENU, type RitualKind } from '../logic/evening.ts';
 import { createMoonGeometry } from './ritual-geometry.ts';
+
+/**
+ * 26 Oct (owner: "the lamp shows"): Places opens INSIDE the lamp. The globe floats up behind the bowls and grows to
+ * 15 cm, and shows one place at a time (a lens onto it: move your head, look around inside); ‹ › beside it, the
+ * place's name above, × to close. Touch, pinch or look at the globe to go there; or say the place's name. Five
+ * panels at most instead of eleven (better for a 66° view). false = the v8 grid of chips.
+ */
+export const PLACES_IN_GLOBE = true;
+/** Desk-local spot of the grown globe (above and behind the Later / Let go bowls, clear of them from the seat). */
+export const GLOBE_SHOW = { x: 0.1, y: 0.22, z: -0.08, radius: 0.085, tilt: -0.45, button: 0.05, gap: 0.028, label: 0.17 } as const;
 
 function approach(current: number, target: number, rate: number, dt: number): number {
   return current + (target - current) * (1 - Math.exp(-rate * dt));
@@ -194,6 +207,27 @@ export class DeskVisuals {
   private readonly menuSpring = new Spring(0);
   private menuOpen = false;
   private readonly thumbs = new Map<PlaceId, HTMLImageElement>();
+  /** The lamp shows the places (PLACES_IN_GLOBE): previews, the carousel, its buttons and title. */
+  private readonly previews = new PlacePreviews();
+  private globeIndex = 1;
+  private frameYaw = 0;
+  private globeK = 0;
+  private windowK = 0;
+  private shownPreview: Texture | null = null;
+  private globeHint = '';
+  readonly globeButtons: Array<{ action: 'globe-prev' | 'globe-next' | 'globe-close'; mesh: Mesh; entity: Entity; uniforms: CardUniforms }> = [];
+  /** Lot 2b: your sky shown in the lamp (seconds left, how much), and the keepsakes on the table. */
+  private skyT = 0;
+  private skyK = 0;
+  private skyLines = 0;
+  private skyLinesTarget = 0;
+  private readonly figLit = new Float32Array(FIG_MAX);
+  private readonly figLitTarget = new Float32Array(FIG_MAX);
+  private figNewAt = -1;
+  private figNewDelay = 0;
+  readonly keepsakes = new Keepsakes();
+  readonly globeLabel: Mesh;
+  readonly globeLabelUniforms: CardUniforms;
   private readonly trayUniforms: TrayUniforms;
   /** On a real table the tray casts its (merged) contact shadow. */
   private groundedFlag = false;
@@ -477,6 +511,28 @@ export class DeskVisuals {
     this.root.add(this.moveChip);
     this.moveEntity = world.createTransformEntity(this.moveChip, this.rootEntity);
     this.hover['move-desk'] = new Spring(0);
+    // 26 Oct (lot 2b): the keepsakes stand on your table, in the desk's frame (one mesh, built once).
+    this.root.add(this.keepsakes.mesh);
+    // 26 Oct: the lamp's own Places (PLACES_IN_GLOBE): ‹ › ×, and the title over the grown globe.
+    for (const action of ['globe-prev', 'globe-next', 'globe-close'] as const) {
+      const material = createCardMaterial(drawGlobeButton(action === 'globe-prev' ? 'prev' : action === 'globe-next' ? 'next' : 'close'));
+      const size = action === 'globe-close' ? GLOBE_SHOW.button * 0.88 : GLOBE_SHOW.button;
+      const mesh = new Mesh(createQuad(size, size), material);
+      mesh.renderOrder = 8;
+      mesh.visible = false;
+      this.root.add(mesh);
+      const entity = world.createTransformEntity(mesh, this.rootEntity);
+      this.globeButtons.push({ action, mesh, entity, uniforms: material.uniforms });
+      this.hover[action] = new Spring(0);
+    }
+    {
+      const material = createCardMaterial(drawGlobeLabel('', 0, MENU_PLACES.length, -1, ''));
+      this.globeLabelUniforms = material.uniforms;
+      this.globeLabel = new Mesh(createQuad(GLOBE_SHOW.label, (GLOBE_SHOW.label * 224) / 768), material);
+      this.globeLabel.renderOrder = 8;
+      this.globeLabel.visible = false;
+      this.root.add(this.globeLabel);
+    }
     // The ritual menu: rows stacked beside the lamp, facing you (only one menu is open at a time).
     RITUAL_MENU.forEach((row, i) => {
       const material = createCardMaterial(drawRitualChip(row.id, row.name, row.sub, false, 0));
@@ -596,6 +652,20 @@ export class DeskVisuals {
     if (open && this.ritualsOpen) this.openRituals(false);
     this.ornamentUniforms.uMap.value.dispose();
     this.ornamentUniforms.uMap.value = drawOrnament('Places', open);
+    if (PLACES_IN_GLOBE) {
+      if (open) {
+        // The globe floats up and grows (never while a ritual drives it).
+        if (!this.orbDirect) this.orbTo(GLOBE_SHOW.x, GLOBE_SHOW.y, GLOBE_SHOW.z, GLOBE_SHOW.radius / LAMP.globe);
+        const here = this.backdrop.place;
+        this.showInGlobe(here !== 'room' ? here : (MENU_PLACES[this.globeIndex] ?? MENU_PLACES[1]));
+        for (const b of this.globeButtons) b.mesh.visible = true;
+        this.globeLabel.visible = true;
+        this.moveChip.visible = true;
+      } else if (!this.orbDirect) {
+        this.orbHome();
+      }
+      return;
+    }
     if (open) {
       this.refreshChips();
       for (const id of MENU_PLACES) {
@@ -609,6 +679,188 @@ export class DeskVisuals {
       }
       for (const chip of this.placeChips) chip.mesh.visible = true;
       this.moveChip.visible = true;
+    }
+  }
+
+  /** The place the globe shows (PLACES_IN_GLOBE). */
+  get globePlace(): PlaceId {
+    return MENU_PLACES[this.globeIndex] ?? 'room';
+  }
+
+  /** Shows a place inside the globe (the carousel moves to it); its preview and its neighbours' are decoded. */
+  showInGlobe(id: PlaceId): void {
+    const i = MENU_PLACES.indexOf(id);
+    if (i < 0) return;
+    this.globeIndex = i;
+    this.refreshGlobe();
+  }
+
+  /** ‹ / ›: the next place in the globe. Returns it. */
+  stepGlobe(step: number): PlaceId {
+    const n = MENU_PLACES.length;
+    this.globeIndex = (((this.globeIndex + step) % n) + n) % n;
+    this.refreshGlobe();
+    return this.globePlace;
+  }
+
+  /** How to choose, said on the title (the input the person uses). */
+  setGlobeHint(hint: string): void {
+    if (hint === this.globeHint) return;
+    this.globeHint = hint;
+    if (this.menuOpen) this.refreshGlobe();
+  }
+
+  private refreshGlobe(): void {
+    const id = this.globePlace;
+    const n = MENU_PLACES.length;
+    const here = this.backdrop.place;
+    const name = id === 'room' ? 'Your room' : PLACES[id].name;
+    const hint = id === here ? 'You are here' : id === 'room' ? 'Touch the lamp to come back' : this.globeHint || 'Touch the lamp, or say its name';
+    this.globeLabelUniforms.uMap.value.dispose();
+    this.globeLabelUniforms.uMap.value = drawGlobeLabel(name, this.globeIndex, n, MENU_PLACES.indexOf(here), hint);
+    const keep = [id, MENU_PLACES[(this.globeIndex + 1) % n], MENU_PLACES[(this.globeIndex + n - 1) % n]];
+    for (const k of keep) if (k !== 'room') void this.previews.load(k, keep);
+  }
+
+  /** Previews decoded for the globe (play-test report). */
+  get globePreviewCount(): number {
+    return this.previews.count;
+  }
+
+  /** How much the globe shows its place right now (0..1, play-test report). */
+  get globeWindow(): number {
+    return this.orbUniforms.uWindow.value;
+  }
+
+  /** Is the shown place's preview decoded, and its auto gain (play-test report). */
+  get globeDebug(): { preview: boolean; gain: number; windowK: number } {
+    return { preview: this.previews.get(this.globePlace) != null, gain: +this.orbUniforms.uPlaceGain.value.toFixed(2), windowK: +this.windowK.toFixed(2) };
+  }
+
+  /**
+   * Lot 2b: the lamp shows your sky for a few seconds — it floats up and grows (as for Places), and inside: a dust
+   * of stars (one per thing let go) and your constellation (one point per evening; `fresh`: the last evening's
+   * point lights as you watch; `complete`: its lines draw in full).
+   */
+  showSky(points: ReadonlyArray<readonly [number, number]>, lit: number, dust: number, seconds: number, fresh: boolean, complete: boolean): void {
+    const o = this.orbUniforms;
+    const n = Math.min(points.length, FIG_MAX);
+    for (let i = 0; i < FIG_MAX; i++) {
+      const p = points[i];
+      o.uFig.value[i].set(p?.[0] ?? 0, p?.[1] ?? 0, 0, 0);
+      this.figLitTarget[i] = i < lit ? 1 : 0;
+      this.figLit[i] = i < lit - (fresh ? 1 : 0) ? 1 : 0;
+    }
+    this.figNewAt = fresh && lit > 0 ? lit - 1 : -1;
+    this.figNewDelay = 1.3;
+    o.uFigN.value = n;
+    // ≈ one visible star per thing let go (cells outside the glass's disk do not count).
+    o.uSkyDust.value = Math.min(290, dust * (324 / 254));
+    this.skyLines = 0;
+    this.skyLinesTarget = complete ? 1 : 0.55;
+    this.skyT = seconds;
+    if (!this.orbDirect && !this.menuOpen) this.orbTo(GLOBE_SHOW.x, GLOBE_SHOW.y, GLOBE_SHOW.z, GLOBE_SHOW.radius / LAMP.globe);
+  }
+
+  get skyShown(): boolean {
+    return this.skyT > 0;
+  }
+
+  /** Ends the sky now (a ritual starts, Places opens). */
+  hideSky(): void {
+    if (this.skyT <= 0) return;
+    this.skyT = 0;
+    if (!this.orbDirect && !this.menuOpen) this.orbHome();
+  }
+
+  private updateSky(dt: number): void {
+    const o = this.orbUniforms;
+    if (this.skyT > 0) {
+      this.skyT -= dt;
+      if (this.skyT <= 0 && !this.orbDirect && !this.menuOpen) this.orbHome();
+    }
+    const showing = this.skyT > 0 && !this.menuOpen;
+    this.skyK = approach(this.skyK, showing ? 1 : 0, showing ? 3 : 4, dt);
+    if (this.skyK < 0.002 && !showing) {
+      o.uSky.value = 0;
+      return;
+    }
+    if (this.figNewDelay > 0) this.figNewDelay -= dt;
+    for (let i = 0; i < FIG_MAX; i++) {
+      const target = i === this.figNewAt && this.figNewDelay > 0 ? 0 : this.figLitTarget[i];
+      this.figLit[i] = approach(this.figLit[i], target, 2.2, dt);
+      const f = o.uFig.value[i];
+      f.z = this.figLit[i];
+      f.w = i === this.figNewAt && this.figNewDelay <= 0 ? Math.max(0, 1 + this.figNewDelay * 0.4) : 0;
+    }
+    this.skyLines = approach(this.skyLines, this.skyK > 0.8 ? this.skyLinesTarget : 0, 0.9, dt);
+    o.uFigLines.value = this.skyLines;
+    o.uSky.value = this.skyK;
+  }
+
+  /** The globe as a window onto the place it shows: grows, fades the place in, keeps ‹ › and the title beside it. */
+  private updateGlobePlaces(dt: number): void {
+    if (!PLACES_IN_GLOBE) return;
+    const open = this.menuOpen;
+    this.globeK = approach(this.globeK, open ? 1 : 0, 5, dt);
+    const o = this.orbUniforms;
+    const id = this.globePlace;
+    const tex = open && id !== 'room' ? this.previews.get(id) : null;
+    if (tex !== this.shownPreview) {
+      // A new place: the glass clouds over for a moment, then the new place clears in.
+      this.windowK = approach(this.windowK, 0, 16, dt);
+      if (this.windowK < 0.04) {
+        this.shownPreview = tex;
+        if (tex != null) {
+          const place = PLACES[id];
+          const g = place.grade;
+          o.uPlaceTex.value = tex;
+          o.uPlaceA.value.set(place.yaw + this.frameYaw, Math.min(g.exposure, 0.86), g.saturation, g.night);
+          o.uPlaceTint.value.set(g.tint[0], g.tint[1], g.tint[2]);
+          // Auto exposure: the place's mean (after its grade) brought to ≈ 0.07 — a night that still reads.
+          const mean = (this.previews.mean(id) ?? 0.08) * Math.min(g.exposure, 0.86) * (1 - 0.6 * g.night);
+          o.uPlaceGain.value = Math.min(4, Math.max(0.7, 0.07 / Math.max(mean, 1e-3)));
+        }
+      }
+    } else {
+      this.windowK = approach(this.windowK, tex != null ? 1 : 0, 5, dt);
+    }
+    o.uWindow.value = this.windowK * this.globeK * (1 - this.skyK);
+    o.uGrown.value = Math.max(this.globeK, this.skyK);
+    const k = this.globeK;
+    const show = k > 0.02;
+    const r = LAMP.globe * this.orbPose.scale;
+    const cx = this.orbPose.x;
+    const cy = this.orbPose.y;
+    const cz = this.orbPose.z;
+    for (const b of this.globeButtons) {
+      b.mesh.visible = show;
+      if (!show) continue;
+      const hover = this.hover[b.action].step(dt);
+      b.uniforms.uOpacity.value = k * (1 - this.dim * 0.4);
+      b.uniforms.uHighlight.value = hover;
+      b.mesh.rotation.x = GLOBE_SHOW.tilt;
+      b.mesh.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.06 * hover));
+      const side = r + GLOBE_SHOW.gap + GLOBE_SHOW.button / 2;
+      if (b.action === 'globe-prev') b.mesh.position.set(cx - side, cy, cz);
+      else if (b.action === 'globe-next') b.mesh.position.set(cx + side, cy, cz);
+      else b.mesh.position.set(cx + GLOBE_SHOW.label / 2 + GLOBE_SHOW.gap, cy + r + 0.038, cz - 0.004);
+    }
+    this.globeLabel.visible = show;
+    if (show) {
+      this.globeLabelUniforms.uOpacity.value = k;
+      this.globeLabel.rotation.x = GLOBE_SHOW.tilt;
+      this.globeLabel.position.set(cx, cy + r + 0.038, cz - 0.004);
+      // "Move desk here" stays one touch away, left of the title (the × is on its right).
+      const hover = this.hover['move-desk'].step(dt);
+      this.moveChip.visible = true;
+      this.moveUniforms.uOpacity.value = k * (1 - this.dim * 0.4);
+      this.moveUniforms.uHighlight.value = hover;
+      this.moveChip.rotation.x = GLOBE_SHOW.tilt;
+      this.moveChip.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover) * 0.8);
+      this.moveChip.position.set(cx - GLOBE_SHOW.label / 2 - GLOBE_SHOW.gap - MOVE_CHIP.w * 0.4, cy + r + 0.038, cz - 0.004);
+    } else if (!this.menuOpen) {
+      this.moveChip.visible = false;
     }
   }
 
@@ -654,6 +906,7 @@ export class DeskVisuals {
     this.root.updateMatrixWorld(true);
     this.root.visible = true;
     this.backdrop.setDeskYaw(frame.yaw);
+    this.frameYaw = frame.yaw;
     // The rain's floor point is under your eyes (≈ 45 cm toward you from the desk centre), on the real floor.
     this.rain.anchor(frame.x + Math.sin(frame.yaw) * 0.45, frame.z + Math.cos(frame.yaw) * 0.45, frame.yaw);
     this.living.anchor(frame.x + Math.sin(frame.yaw) * 0.45, frame.z + Math.cos(frame.yaw) * 0.45, frame.yaw);
@@ -1094,6 +1347,10 @@ export class DeskVisuals {
     if (this.cardTarget === 0 && k < 0.01) {
       this.card.visible = false;
     }
+    this.updateSky(dt);
+    this.updateGlobePlaces(dt);
+    this.keepsakes.update(dt);
+    this.keepsakes.setFlame(1 - this.lampOut);
     // Places menu: rows rise in one after another (spring), fade out when closed.
     this.menuSpring.target = this.menuOpen ? 1 : 0;
     const menu = Math.max(0, this.menuSpring.step(dt, 200, 24));
@@ -1106,7 +1363,7 @@ export class DeskVisuals {
       chip.mesh.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover) * (1 + (NEAR_MENU.spread - 1) * nk));
       if (!this.menuOpen && menu < 0.02) chip.mesh.visible = false;
     });
-    {
+    if (!PLACES_IN_GLOBE) {
       const k = Math.min(1, Math.max(0, menu * 1.25 - this.placeChips.length * 0.08));
       this.moveChip.rotation.x = onNearPane(this.layout, MOVE_CHIP.x + GRID_NEAR_SHIFT * nk, GRID.dy[GRID.dy.length - 1] - 0.066, nk, this.moveChip.position);
       const hover = this.hover['move-desk'].step(dt);
@@ -1140,8 +1397,10 @@ export class DeskVisuals {
     const rk = Math.max(0, Math.min(1, this.replySpring.step(dt, 170, 24)));
     if (this.cardTarget === 0) {
       const two = this.replyLabels != null && this.replyLabels.length > 1;
-      this.keepChip.visible = rk > 0.01;
-      this.lighterChip.visible = rk > 0.01 && two;
+      // While the lamp shows the places, its question waits (one thing at a time; the globe stands there).
+      const free = Math.max(this.globeK, this.skyK) < 0.5;
+      this.keepChip.visible = rk > 0.01 && free;
+      this.lighterChip.visible = rk > 0.01 && two && free;
     }
     this.chipUniforms[0].uOpacity.value = Math.min(1, Math.max(k, rk)) * this.uiK;
     this.chipUniforms[1].uOpacity.value = Math.min(1, Math.max(k, rk)) * this.uiK;
@@ -1211,7 +1470,7 @@ export class DeskVisuals {
     // The globe's light follows it (and grows with it: the moon lights the tray and your hands).
     const s = this.orbPose.scale;
     // The main light of the tray as the night comes: a warm pool on the wood, the bowls and the stones.
-    rig.uOrbPower.value = (0.06 * (1 - out) + energy * (0.24 + 0.14 * this.eveningDepth)) * this.reveal * (1 + (s - 1) * 0.55);
+    rig.uOrbPower.value = (0.06 * (1 - out) + energy * (0.24 + 0.14 * this.eveningDepth)) * this.reveal * (1 + (s - 1) * 0.55) * (1 - 0.45 * Math.max(this.globeK, this.skyK));
     this.root.updateMatrixWorld();
     this.orb.getWorldPosition(this.worldTmp);
     rig.uOrbPos.value.copy(this.worldTmp);
@@ -1228,7 +1487,7 @@ export class DeskVisuals {
         listen: this.orbListening * Math.min(1, 0.35 + o.uLevel.value * 2),
         think: o.uThinking.value,
         lookK: o.uLookK.value,
-        alpha: wakeK * (1 - out) * (1 - moonK) * (1 - this.orbMuted * 0.7) * this.reveal,
+        alpha: wakeK * (1 - out) * (1 - moonK) * (1 - this.orbMuted * 0.7) * this.reveal * (1 - Math.max(this.globeK, this.skyK)),
         halo,
       },
       this.spiritLook,
@@ -1241,7 +1500,8 @@ export class DeskVisuals {
       this.lights.drift(this.worldTmp.x, this.worldTmp.y + 0.01, this.worldTmp.z, 1, 0.025, 0.06, 0.006, 5.5);
     }
     // Ritual menu rows rise in like the Places rows.
-    this.ritualSpring.target = this.ritualsOpen && this.uiK > 0.6 ? 1 : 0;
+    // Lot 2b: while the lamp shows your sky, its proposal waits (one thing at a time), then the rows rise.
+    this.ritualSpring.target = this.ritualsOpen && this.uiK > 0.6 && this.skyK < 0.3 ? 1 : 0;
     const rm = Math.max(0, this.ritualSpring.step(dt, 200, 24));
     // The rows stand upright and turn to face you (yaw only): never sheared like italics, wherever you sit.
     if (rm > 0.001) {
@@ -1266,7 +1526,8 @@ export class DeskVisuals {
       chip.uniforms.uOpacity.value = kk;
       chip.uniforms.uHighlight.value = hover;
       chip.mesh.scale.setScalar((0.9 + 0.1 * kk) * (1 + 0.04 * hover) * RITUAL_ROWS.scale);
-      if (!this.ritualsOpen && rm < 0.02) chip.mesh.visible = false;
+      if ((!this.ritualsOpen || this.skyK > 0.3) && rm < 0.02) chip.mesh.visible = false;
+      else if (this.ritualsOpen && rm > 0.02) chip.mesh.visible = true;
     });
     const ritualsHover = this.hover.rituals.step(dt);
     this.ritualsUniforms.uOpacity.value = ornamentOpacity;

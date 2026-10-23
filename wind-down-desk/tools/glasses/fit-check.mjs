@@ -64,6 +64,15 @@ export async function fit(f) {
       v.ritualChips.forEach((c) => on(c.mesh, c.uniforms) && items.push([`ritual ${c.id}`, quad(c.mesh)]));
       v.placeChips.forEach((c) => on(c.mesh, c.uniforms) && items.push([`place ${c.id}`, quad(c.mesh)]));
       if (v.card.visible) items.push(['card', quad(v.card)]);
+      // 26 Oct: the lamp showing the places (the grown globe, ‹ › ×, its title, Move desk).
+      (v.globeButtons ?? []).forEach((b) => on(b.mesh, b.uniforms) && items.push([b.action, quad(b.mesh)]));
+      if (v.globeLabel != null && on(v.globeLabel, v.globeLabelUniforms)) items.push(['globe title', quad(v.globeLabel)]);
+      if (visible(v.moveChip)) items.push(['move desk', quad(v.moveChip)]);
+      if (v.orbScale > 1.3) {
+        const c = v.orb.getWorldPosition(v.orb.position.clone());
+        const r = 0.025 * v.orbScale;
+        items.push(['grown globe', box([{ x: c.x - r, y: c.y - r, z: c.z }, { x: c.x + r, y: c.y + r, z: c.z }, { x: c.x, y: c.y, z: c.z - r }, { x: c.x, y: c.y, z: c.z + r }])]);
+      }
       items.push(['lamp', box([window.__wdd.deskPoint(0.352 - 0.04, 0.0, 0.035), window.__wdd.deskPoint(0.352 + 0.04, 0.09, 0.035)])]);
       const fr = window.__wdd.state().frame;
       for (const b of ['tomorrow', 'later', 'let-go']) {

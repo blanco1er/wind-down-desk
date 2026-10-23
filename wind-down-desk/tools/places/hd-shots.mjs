@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const OUT = 'artifacts/places-hd/raw';
 // Where to look (degrees, from facing the desk): a detailed part of each photo.
-const VIEW = { 'moon-lake': [0, 4], 'moon-beach': [0, -2], 'ember-fire': [25, 2], 'northern-lights': [0, 10], 'rooftop-city': [0, -4], 'fireside-cabin': [30, 0], 'rain-veranda': [0, 0], 'firefly-meadow': [0, 2] };
+const VIEW = { 'moon-lake': [0, 4], 'moon-beach': [0, -2], 'ember-fire': [25, 2], 'northern-lights': [0, 10], 'rooftop-city': [0, -4], 'fireside-cabin': [30, 0], 'rain-veranda': [0, 0], 'firefly-meadow': [0, 2], 'desert-stars': [20, -8] };
 export default async function run({ frame, page, cdp }) {
   const f = frame ?? page;
   mkdirSync(OUT, { recursive: true });

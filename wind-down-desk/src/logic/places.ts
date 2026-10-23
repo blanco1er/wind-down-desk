@@ -237,6 +237,7 @@ export const PLACES: Record<PlaceId, Place> = {
     name: 'Desert stars',
     arrive: 'Dunes under the Milky Way. Now and then, a shooting star.',
     photo: './environments/night-desert.ktx2',
+    photoHd: './environments/night-desert-8k.ktx2',
     fallback: './environments/night-desert-2k.jpg',
     thumb: './environments/night-desert-thumb.jpg',
     yaw: 0,
@@ -294,6 +295,21 @@ const PLACE_WORDS: Array<{ places: PlaceId[]; pattern: RegExp }> = [
 /** The version of a concept the menu shows (else the first listed). */
 function preferred(places: PlaceId[]): PlaceId {
   return places.find((id) => MENU_PLACES.includes(id)) ?? places[0];
+}
+
+/**
+ * 26 Oct (the lamp shows the places): what you can say while a place is shown inside the globe. Whole short
+ * sentences only (never "yes" / "not now", which answer the lamp's questions). A place's name still goes straight
+ * there (parsePlaceCommand).
+ */
+export type GlobeCommand = 'next' | 'previous' | 'choose' | 'close';
+export function parseGlobeCommand(normalized: string): GlobeCommand | null {
+  const n = normalized.trim().replace(/^(please |ok |okay )/u, '').replace(/ please$/u, '');
+  if (/^(next( one| place)?|another( one| place)?|show me another( one)?|the next one|and the next)$/u.test(n)) return 'next';
+  if (/^(previous( one| place)?|back one|the one before|go back one|the last one|before that)$/u.test(n)) return 'previous';
+  if (/^(this one|that one|here|go there|take me there|lets go there|i want this one|choose this one|lets go)$/u.test(n)) return 'choose';
+  if (/^(close( it| the places| places)?|never mind|nevermind|stay here|no thanks)$/u.test(n)) return 'close';
+  return null;
 }
 
 /**

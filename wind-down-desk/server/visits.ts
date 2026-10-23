@@ -37,6 +37,11 @@ export const EVENTS: Record<string, readonly string[]> = {
   bubble: ['kind'],
   /** 24 Oct: Talk it through — start, turn, end, voice-unavailable (never words, never a crisis). */
   talk: ['event'],
+  /** 26 Oct: the lamp shows the places — open, next / previous, choose (which place, never more). */
+  globe: ['step', 'id'],
+  /** 26 Oct (lot 2b): the sky shown in the lamp (at arrival / asked, evenings count), and a milestone reached. */
+  sky: ['evenings'],
+  milestone: ['m'],
   'xr-enter': ['mode'],
   'xr-exit': ['secs'],
   placed: ['source', 'mode'],

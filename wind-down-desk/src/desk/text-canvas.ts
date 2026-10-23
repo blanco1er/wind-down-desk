@@ -636,6 +636,72 @@ function chipCanvas(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2
   return { canvas, ctx };
 }
 
+/**
+ * 26 Oct (the lamp shows the places): a small round glass button beside the grown globe — previous / next place,
+ * or close. One glyph, no text (the label above the globe names the place). 256 × 256.
+ */
+export function drawGlobeButton(kind: 'prev' | 'next' | 'close'): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const ctx = sized(canvas, 192, 192, 192 / 256, 192 / 256);
+  glass(ctx, 14, 14, 228, 228, 114);
+  ctx.strokeStyle = DS.text.primary;
+  ctx.lineWidth = 13;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (kind === 'close') {
+    ctx.moveTo(100, 100);
+    ctx.lineTo(156, 156);
+    ctx.moveTo(156, 100);
+    ctx.lineTo(100, 156);
+  } else {
+    const d = kind === 'prev' ? -1 : 1;
+    ctx.moveTo(128 - 14 * d, 90);
+    ctx.lineTo(128 + 22 * d, 128);
+    ctx.lineTo(128 - 14 * d, 166);
+  }
+  ctx.stroke();
+  return uiTexture(canvas);
+}
+
+/**
+ * The title over the grown globe: the place's name, where it sits among the places (one dot each, the shown one in
+ * lamp light, a ring on the place you are in), and how to choose. 768 × 224, one line of name at 58 px.
+ */
+export function drawGlobeLabel(name: string, index: number, count: number, current: number, hint: string): CanvasTexture {
+  const { canvas, ctx } = chipCanvas();
+  glass(ctx, 10, 10, 748, 204, 102);
+  let size = 58;
+  ctx.font = `600 ${size}px ${FONT}`;
+  while (size > 44 && ctx.measureText(name).width > 600) {
+    size -= 2;
+    ctx.font = `600 ${size}px ${FONT}`;
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = DS.text.primary;
+  ctx.fillText(name, 384, 74, 640);
+  const gap = 34;
+  const x0 = 384 - ((count - 1) * gap) / 2;
+  for (let i = 0; i < count; i++) {
+    ctx.beginPath();
+    ctx.arc(x0 + i * gap, 132, i === index ? 9 : 6, 0, Math.PI * 2);
+    ctx.fillStyle = i === index ? DS.accent.lamp : DS.text.tertiary;
+    ctx.fill();
+    if (i === current) {
+      ctx.beginPath();
+      ctx.arc(x0 + i * gap, 132, 14, 0, Math.PI * 2);
+      ctx.strokeStyle = DS.text.secondary;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+  }
+  ctx.font = `500 34px ${FONT}`;
+  ctx.fillStyle = DS.text.secondary;
+  ctx.fillText(hint, 384, 180, 700);
+  return uiTexture(canvas);
+}
+
 /** One row of the Places menu: round photo, name, a lamp-coloured dot on the current place. */
 export function drawPlaceChip(name: string, thumb: HTMLImageElement | null, current: boolean): CanvasTexture {
   const { canvas, ctx } = chipCanvas();

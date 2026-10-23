@@ -13,10 +13,10 @@ function header(url: URL): { w: number; h: number; model: number; levels: number
   return { w: v.getUint32(20, true), h: v.getUint32(24, true), model: b[dfd + 12], levels: v.getUint32(40, true) || 1 };
 }
 
-test('HD places: 8 places have an 8k UASTC panorama, the desert stays 6k (owner to choose), every place keeps its 6k fallback', () => {
+test('HD places: all 9 night places have an 8k UASTC panorama (the painted desert too, owner 26 Oct), every place keeps its 6k fallback', () => {
   const hd = PLACE_IDS.filter((id) => PLACES[id].photoHd != null);
-  assert.equal(hd.length, 8);
-  assert.equal(PLACES['desert-stars'].photoHd, undefined);
+  assert.equal(hd.length, 9);
+  assert.equal(PLACES['desert-stars'].photoHd, './environments/night-desert-8k.ktx2', 'our painted desert (dunes + camp fire), not a photo');
   for (const id of hd) {
     const p = PLACES[id];
     const url = file(p.photoHd as string);
@@ -37,4 +37,18 @@ test('HD places: only on a GPU that takes 8192-wide compressed textures, never d
   assert.equal(hdSupport(8192, has(['WEBGL_compressed_texture_etc'])).ok, true);
   assert.equal(hdSupport(4096, has(['WEBGL_compressed_texture_astc'])).ok, false, 'MAX_TEXTURE_SIZE 4096 → 6k');
   assert.equal(hdSupport(16384, has([])).ok, false, 'no compressed target → 6k (89 MB raw otherwise)');
+});
+
+test('the lamp shows the places: short spoken commands while the globe is open, never "yes" / "not now"', async () => {
+  const { parseGlobeCommand } = await import('../src/logic/places.ts');
+  assert.equal(parseGlobeCommand('next'), 'next');
+  assert.equal(parseGlobeCommand('another one please'), 'next');
+  assert.equal(parseGlobeCommand('previous'), 'previous');
+  assert.equal(parseGlobeCommand('the one before'), 'previous');
+  assert.equal(parseGlobeCommand('this one'), 'choose');
+  assert.equal(parseGlobeCommand('take me there'), 'choose');
+  assert.equal(parseGlobeCommand('never mind'), 'close');
+  assert.equal(parseGlobeCommand('yes'), null);
+  assert.equal(parseGlobeCommand('not now'), null);
+  assert.equal(parseGlobeCommand('next week i need to call my mother'), null, 'a sentence of a brain dump is not a command');
 });
