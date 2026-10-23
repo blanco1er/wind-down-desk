@@ -15,7 +15,7 @@
  * Panoramas: any place can get a life by adding an entry to LIFE (logic/living.ts); a new panorama for "Ember fire"
  * only needs its `photo` / `fallback` / `thumb` paths in places.ts (the fire's yaw and distances live in LIFE).
  */
-import { Group, Mesh, Object3D, Vector3, Vector4, type World } from '@iwsdk/core';
+import { Group, Mesh, Object3D, Vector3, Vector4, type Camera, type World } from '@iwsdk/core';
 import type { PlaceBackdrop } from '../environment.ts';
 import { PLACES, type PlaceId } from '../../logic/places.ts';
 import {
@@ -143,6 +143,24 @@ export class LivingPlaces {
   }
 
   /** Called when the backdrop has started showing `id` (after backdrop.go resolved). */
+  /**
+   * 25 Oct ("fluide"): builds a place's living layer in advance, compiles its shaders without blocking
+   * (`compileAsync`, parallel compilation where the browser has it) and fetches its sounds, in a calm moment, so
+   * arriving there freezes no frame. The layer stays hidden until the place is chosen.
+   */
+  prepare(id: PlaceId, renderer: { compileAsync(scene: Object3D, camera: Camera, target?: Object3D | null): Promise<unknown> }, camera: Camera, scene: Object3D): void {
+    if (this.current?.id === id) return;
+    const life = lifeOf(id);
+    if (life == null) return;
+    const b = this.build(id, life);
+    b.sound.prefetch();
+    // compile() only gathers visible objects: shown for this synchronous call only.
+    const was = b.root.visible;
+    b.root.visible = true;
+    void renderer.compileAsync(this.root, camera, scene).catch(() => {});
+    b.root.visible = was;
+  }
+
   setPlace(id: PlaceId): void {
     if (this.current?.id === id) {
       this.target = 1;

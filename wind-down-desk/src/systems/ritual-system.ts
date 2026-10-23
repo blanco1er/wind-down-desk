@@ -40,6 +40,9 @@ import { TtsPlayer } from '../voice/tts-player.ts';
 import { spokenSentences, TALK_OPENING, talkClock, WIND_DOWN_LINE, type TalkReply, type TalkTurn } from '../shared/agent/talk.ts';
 import { cleanSummary, crisisInModelText, crisisSignal, CRISIS_REPLY, HELP_ROWS } from '../shared/agent/safety.ts';
 
+/** The last place chosen (not your room), prepared first in calm moments. */
+const LAST_PLACE_KEY = 'wdd.lastPlace';
+
 /** Seconds of silence before the example stone when suggestion bubbles are offered (8 s otherwise, onboarding.ts). */
 const BUBBLES_BEFORE_EXAMPLE = 14;
 import { EXAMPLE_STONE, ghostFrame, ghostTarget, onboardingStep, SPOKEN_EXAMPLE } from '../logic/onboarding.ts';
@@ -224,6 +227,10 @@ export class RitualSystem extends createSystem({
   private ttsRetryAt = 0;
   /** The help card is on the desk (it goes when the talk or the ritual ends). */
   private helpShown = false;
+  /** 25 Oct — places prepared in calm moments (no loading pause, no frozen frame when one is chosen). */
+  private prepBusy = false;
+  private prepAt = 0;
+  private readonly prepLog: Array<{ id: string; why: string; ms: number; ok: boolean }> = [];
   /** Suggested replies (axe 4), decided ten times a second with the onboarding (no per-frame allocation). */
   private bubbles: string[] | null = null;
   private bubbleKey = '';
@@ -402,7 +409,12 @@ export class RitualSystem extends createSystem({
     this.queries.held.subscribe('disqualify', (entity) => this.pendingDrops.push(entity));
     this.queries.held.subscribe('qualify', (entity) => this.onPick(entity));
     this.queries.pressed.subscribe('qualify', (entity) => this.onButton(String(entity.getValue(DeskButton, 'action'))));
-    this.queries.hovered.subscribe('qualify', (entity) => this.visuals.setHover(String(entity.getValue(DeskButton, 'action')), true));
+    this.queries.hovered.subscribe('qualify', (entity) => {
+      const action = String(entity.getValue(DeskButton, 'action'));
+      this.visuals.setHover(action, true);
+      // A hand (or a ray) on a place: it is probably the next one, prepared right now.
+      if (action.startsWith('place:')) void this.preparePlace(action.slice(6) as PlaceId, 'hover');
+    });
     this.queries.hovered.subscribe('disqualify', (entity) => this.visuals.setHover(String(entity.getValue(DeskButton, 'action')), false));
 
     services.voice.onUtterance = (clip) => void this.onClip(clip);
@@ -1445,6 +1457,13 @@ export class RitualSystem extends createSystem({
     if (place.photo != null) {
       this.flash(goingLine(place.name), 2, '', false);
     }
+    if (id !== 'room') {
+      try {
+        localStorage.setItem(LAST_PLACE_KEY, id);
+      } catch {
+        // Private window: no memory of the last place.
+      }
+    }
     const ok = await this.visuals.goPlace(id);
     if (!ok) {
       this.flash('That place could not load. You are still in your room.', 3);
@@ -1453,6 +1472,47 @@ export class RitualSystem extends createSystem({
     this.cue('night', { x: 0, y: 0.4, z: -0.6 });
     window.setTimeout(() => this.visuals.openPlaces(false), via === 'hand' ? 700 : 0);
     this.flash(place.arrive, 4, id === 'room' ? '' : 'Say "back to my room" anytime.');
+  }
+
+  /** Prepares one place (panorama on the GPU, living layer compiled, sounds fetched). One at a time. */
+  private async preparePlace(id: PlaceId, why: string): Promise<void> {
+    if (this.prepBusy || id === 'room' || id === this.visuals.backdrop.place || this.visuals.backdrop.preparedPlaces.includes(id) || PLACES[id] == null) return;
+    this.prepBusy = true;
+    const t0 = performance.now();
+    let ok = false;
+    try {
+      ok = await this.visuals.preparePlace(id);
+    } catch {
+      ok = false;
+    }
+    this.prepBusy = false;
+    this.prepLog.push({ id, why, ms: Math.round(performance.now() - t0), ok });
+    if (this.prepLog.length > 20) this.prepLog.shift();
+  }
+
+  /**
+   * Calm moments (once a second): the lamp silent, nothing touched or said for 3 s, not breathing or releasing, the
+   * arrival over → the next likely place is prepared: the last place you chose, then the lake (Talk it through).
+   */
+  private updatePlacePrep(): void {
+    if (this.elapsed < this.prepAt) return;
+    this.prepAt = this.elapsed + 1;
+    const placed = this.placementMode === 'table' || this.placementMode === 'floating';
+    if (!placed || this.prepBusy || !this.visuals.uiShown) return;
+    if (this.mode === 'breathe' || this.mode === 'release' || this.mode === 'night' || this.mode === 'arrive') return;
+    if (this.elapsed - this.lastActivity < 3 || this.voice.speaking(this.elapsed) || (this.tts?.speaking ?? false) || this.talk?.busy === true) return;
+    let last: string | null = null;
+    try {
+      last = localStorage.getItem(LAST_PLACE_KEY);
+    } catch {
+      last = null;
+    }
+    const ready = this.visuals.backdrop.preparedPlaces;
+    for (const id of [last, 'moon-lake']) {
+      if (id == null || !(id in PLACES) || id === 'room' || id === this.visuals.backdrop.place || ready.includes(id as PlaceId)) continue;
+      void this.preparePlace(id as PlaceId, id === last ? 'last place' : 'talk place');
+      return;
+    }
   }
 
   private setImmersion(level: Immersion): void {
@@ -2769,6 +2829,7 @@ export class RitualSystem extends createSystem({
         this.tts.place(this.ttsAt.x, this.ttsAt.y, this.ttsAt.z);
       }
     }
+    this.updatePlacePrep();
     if (this.mode === 'talk' && this.talk != null && !this.talk.closing) {
       const c = talkClock((this.elapsed - this.talk.startedAt) / 60, this.talk.announced);
       if (c === 'announce') {
@@ -3432,6 +3493,8 @@ export class RitualSystem extends createSystem({
           caption: this.baseCaption.text,
         };
       },
+      /** Places prepared in calm moments (tests): ready ones, pending, and the log (place, why, ms). */
+      prepared: () => ({ ready: this.visuals.backdrop.preparedPlaces.slice(), pending: this.prepBusy ? 1 : 0, log: this.prepLog.slice() }),
       /** Latency A/B (tests): false = the former path (whole answer, then the voice). */
       talkStream: (on: boolean) => {
         this.talkNoStream = !on;

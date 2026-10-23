@@ -69,6 +69,11 @@ export class LivingSound {
     return findListener(this.world);
   }
 
+  /** 25 Oct: fetches and decodes the loops now (a calm moment), so arriving in the place plays them at once. */
+  prefetch(): void {
+    for (const loop of this.loops) void load(loop.def.src);
+  }
+
   /** Declares the loops (started on `start`, lazily loaded). */
   setLoops(defs: LoopDef[]): void {
     this.loops = defs.map((def) => ({ def, audio: null }));

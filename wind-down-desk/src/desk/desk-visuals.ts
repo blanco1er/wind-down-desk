@@ -186,6 +186,9 @@ export class DeskVisuals {
   /** The lamp's aura (axe 4) and what it needs each frame (no allocation). */
   private readonly spirit: LampSpirit;
   private readonly spiritLook = new Vector3();
+  private readonly prepRenderer: World['renderer'];
+  private readonly prepCamera: World['camera'];
+  private readonly prepScene: World['scene'];
   private readonly camera: { getWorldPosition(v: Vector3): Vector3 };
   private readonly ornamentUniforms: CardUniforms;
   private readonly menuSpring = new Spring(0);
@@ -319,6 +322,9 @@ export class DeskVisuals {
     // 24 Oct (axe 4): the lamp's aura of living motes AND its soft halo, in one draw call (the halo was its own mesh),
     // child of the globe so it travels and grows with it.
     this.spirit = new LampSpirit(LAMP.globe);
+    this.prepRenderer = world.renderer;
+    this.prepCamera = world.camera;
+    this.prepScene = world.scene;
     this.orb.add(this.spirit.mesh);
     this.root.add(this.orb);
     this.orbEntity = world.createTransformEntity(this.orb, this.rootEntity);
@@ -623,6 +629,13 @@ export class DeskVisuals {
   }
 
   /** Crossfades to a place; the desk light follows. Resolves false if the photo could not load. */
+  /** 25 Oct: prepares a place in advance (panorama on the GPU, living layer compiled, sounds fetched). */
+  async preparePlace(id: PlaceId): Promise<boolean> {
+    const ok = await this.backdrop.prepare(id);
+    if (ok) this.living.prepare(id, this.prepRenderer, this.prepCamera, this.prepScene);
+    return ok;
+  }
+
   async goPlace(id: PlaceId): Promise<boolean> {
     const ok = await this.backdrop.go(id);
     if (ok) {

@@ -54,6 +54,9 @@ function groundShade(place: (typeof PLACES)[PlaceId]): number {
   return typeof v === 'number' ? Math.max(0, Math.min(1, v)) : GROUND_SHADE;
 }
 
+/** Places prepared in advance, besides the current one (6 MiB of GPU memory each on Quest). */
+const PREPARED_MAX = 2;
+
 /** Projection of a loaded panorama: 1 = equal-area KTX2 (row 0 = zenith), 0 = equirectangular JPG (flipY). */
 type Loaded = { texture: Texture; equalArea: boolean; gpuBytes: number };
 
@@ -307,6 +310,40 @@ export class PlaceBackdrop {
     return true;
   }
 
+  /**
+   * 25 Oct ("fluide"): places prepared in a calm moment — downloaded, transcoded AND already on the GPU — so choosing
+   * one later starts its crossfade at once, without the frozen frame of a first upload. At most PREPARED_MAX are
+   * kept besides the current place (6 MiB of GPU memory each on Quest).
+   */
+  private readonly prepared: PlaceId[] = [];
+
+  async prepare(id: PlaceId): Promise<boolean> {
+    const place = PLACES[id];
+    this.measure(id);
+    if (id === this.to || (place.photo == null && place.fallback == null)) return true;
+    const loaded = await this.load(id);
+    if (loaded == null) return false;
+    // The upload happens now (a calm moment), not on the first frame of the crossfade.
+    this.renderer?.initTexture(loaded.texture);
+    if (!this.prepared.includes(id)) this.prepared.push(id);
+    while (this.prepared.length > PREPARED_MAX) {
+      const old = this.prepared.shift();
+      if (old != null && old !== this.to && old !== this.from) this.release(old);
+    }
+    return true;
+  }
+
+  get preparedPlaces(): readonly PlaceId[] {
+    return this.prepared;
+  }
+
+  private release(id: PlaceId): void {
+    const loaded = this.textures.get(id);
+    if (loaded != null) loaded.texture.dispose();
+    this.textures.delete(id);
+    this.loading.delete(id);
+  }
+
   /** Prefetch thumbnails / photos (e.g. when the picker opens). */
   preload(id: PlaceId): void {
     if (PLACES[id].photo != null || PLACES[id].fallback != null) {
@@ -507,13 +544,11 @@ export class PlaceBackdrop {
       this.applyLight(l, e);
       this.light.key = l.key;
       if (this.progress >= 1) {
-        // Release the place we left (GPU memory), keep the one we are in.
-        for (const [id, loaded] of this.textures) {
-          if (id !== this.to) {
-            loaded.texture.dispose();
-            this.textures.delete(id);
-            this.loading.delete(id);
-          }
+        // Release the place we left (GPU memory), keep the one we are in — and the places prepared in advance.
+        const i = this.prepared.indexOf(this.to);
+        if (i >= 0) this.prepared.splice(i, 1);
+        for (const id of [...this.textures.keys()]) {
+          if (id !== this.to && !this.prepared.includes(id)) this.release(id);
         }
         this.from = this.to;
         u.uTexA.value = u.uTexB.value;
