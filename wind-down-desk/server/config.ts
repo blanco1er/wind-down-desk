@@ -16,7 +16,7 @@
 import { LlmAgent } from '../src/shared/agent/llm-agent.ts';
 import { SimulatedAgent } from '../src/shared/agent/simulated.ts';
 import type { Agent } from '../src/shared/agent/types.ts';
-import { isGeminiHost, OpenAICompatibleChat } from './providers/llm.ts';
+import { OpenAICompatibleChat } from './providers/llm.ts';
 import { OpenAICompatibleStt, SimulatedStt, type SttProvider } from './providers/stt.ts';
 import { ttsFromEnv, type TtsProvider } from './providers/tts.ts';
 
@@ -46,8 +46,10 @@ export function resolveProviders(env: Env, hooks: { onUsage?: (tokens: number) =
     );
     simulatedAgent = false;
   } else if (!forceSimulated && env.LLM_BASE_URL && env.LLM_API_KEY) {
-    // Talk it through on Gemini: minimal reasoning so the lamp's voice starts sooner (LLM_TALK_REASONING_EFFORT).
-    const talkEffort = env.LLM_TALK_REASONING_EFFORT || (isGeminiHost(env.LLM_BASE_URL) || /^gemini/iu.test(env.LLM_MODEL ?? '') ? 'minimal' : undefined);
+    // Talk it through: its own reasoning effort only when set (LLM_TALK_REASONING_EFFORT); otherwise the same as the
+    // rest (LLM_REASONING_EFFORT, "low" on Render). 25 Oct: "minimal" by default sent every turn to the fallback live;
+    // it stays off until proven, and a refused value is now dropped automatically (llm.ts).
+    const talkEffort = env.LLM_TALK_REASONING_EFFORT || undefined;
     agent = new LlmAgent(
       new OpenAICompatibleChat({
         name: `OpenAI-compatible (${env.LLM_MODEL ?? 'default'})`,

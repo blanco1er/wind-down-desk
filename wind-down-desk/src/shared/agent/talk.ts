@@ -46,6 +46,8 @@ export interface TalkReply {
   summary: string;
   /** The sentence spoke of suicide or self-harm: fixed answer, help resources shown, no model call. */
   crisis: boolean;
+  /** Set when this answer did NOT come from the configured model (e.g. "on-device fallback (LLM HTTP 400: …)"). */
+  source?: string;
 }
 
 /** The bounded history: only the last `TALK.turns` exchanges are kept verbatim. */
@@ -123,6 +125,26 @@ const REFLECT = [
   (k: string) => `I hear you. ${k} is taking a lot of room tonight.`,
   (k: string) => `Thank you for saying it. ${k} matters to you, I can tell.`,
 ];
+/** When no clean name for the worry was found: gentle lines that need none (never a broken fragment). */
+const REFLECT_PLAIN = ['That sounds heavy. Thank you for saying it out loud.', 'I hear you. It has been a lot today.', 'Thank you for telling me. That matters.'];
+
+const NOT_A_START = new Set('i im ive id ill you youre we they he she it its was were is am are had have has feel felt keep kept need want think thought just so really very and but or because'.split(' '));
+const NOT_AN_END = new Set('a an the to of about with for and but or so very really rough bad good hard long tough my your his her their our its is was were am are be been i me'.split(' '));
+
+/**
+ * A worry's title fit to be said back ("The deadline", "Sister has not called"), or null: never a fragment such as
+ * one starting with a pronoun or ending on an article or an adjective (25 Oct, live: a fragment was said back).
+ */
+export function cleanKey(title: string | undefined): string | null {
+  if (title == null) return null;
+  const words = title.replace(/[^\p{L}\p{N}' -]/gu, '').trim().split(/\s+/u).filter(Boolean);
+  if (words.length === 0 || words.length > 5) return null;
+  const first = words[0].toLowerCase().replace(/'/gu, '');
+  const last = words[words.length - 1].toLowerCase().replace(/'/gu, '');
+  if (NOT_A_START.has(first) || NOT_AN_END.has(last)) return null;
+  const t = words.join(' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
 const ASK = ['What part of it weighs the most?', 'How does it feel, now that it is said?', 'What would make tonight a little lighter?', 'Is there one small thing you could leave until tomorrow?'];
 
 /**
@@ -139,11 +161,17 @@ export function deviceTalk(input: TalkInput, extractTitles: (text: string) => st
       crisis: false,
     };
   }
-  const titles = extractTitles(input.text);
+  // Only clean names become stones or are said back; otherwise a gentle line that needs no name.
+  const titles = extractTitles(input.text)
+    .map(cleanKey)
+    .filter((t): t is string => t != null);
   const weights = mergeWeights(input.weights, titles);
-  const key = weights[0] ?? titles[0] ?? 'This';
-  const reply = `${REFLECT[turnIndex % REFLECT.length](key)} ${ASK[turnIndex % ASK.length]}`;
-  const summary = cleanSummary(`${input.summary} ${input.text.slice(0, 120)}`.trim()).slice(-TALK.summaryChars);
+  const key = weights[0] ?? titles[0] ?? null;
+  const first = key != null ? REFLECT[turnIndex % REFLECT.length](key) : REFLECT_PLAIN[turnIndex % REFLECT_PLAIN.length];
+  const reply = `${first} ${ASK[turnIndex % ASK.length]}`;
+  // The summary keeps short neutral notes, never the raw sentence.
+  const note = key != null ? `Spoke about ${key.charAt(0).toLowerCase()}${key.slice(1)}.` : '';
+  const summary = cleanSummary(`${input.summary} ${note}`.trim()).slice(-TALK.summaryChars);
   return { reply: spokenCut(reply), weights, summary, crisis: false };
 }
 

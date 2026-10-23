@@ -266,11 +266,15 @@ export function createApp(options: AppOptions = {}): { server: Server; providers
           const agent = providers.agent;
           const onSentence = (sentence: string) => res.write(`data: ${JSON.stringify({ type: 'sentence', text: sentence })}\n\n`);
           const reply = agent.talkStream != null ? await agent.talkStream(input, onSentence) : await agent.talk(input);
-          res.end(`data: ${JSON.stringify({ type: 'done', ...reply, summary: cleanSummary(reply.summary), agent: agent.name })}\n\n`);
+          if (reply.source != null) console.error(`[wdd-server] /api/talk: ${reply.source}`);
+          res.end(`data: ${JSON.stringify({ type: 'done', ...reply, summary: cleanSummary(reply.summary), agent: reply.source ?? agent.name })}\n\n`);
           return;
         }
         const reply = await providers.agent.talk(input);
-        send(res, 200, { ...reply, summary: cleanSummary(reply.summary), agent: providers.agent.name }, origin);
+        // The truth about where the answer came from (25 Oct: the field used to show the model while it was the
+        // on-device fallback); the log keeps the provider's status and message, never a key or the person's words.
+        if (reply.source != null) console.error(`[wdd-server] /api/talk: ${reply.source}`);
+        send(res, 200, { ...reply, summary: cleanSummary(reply.summary), agent: reply.source ?? providers.agent.name }, origin);
         return;
       }
       if (req.method === 'POST' && url.pathname === '/api/speak') {

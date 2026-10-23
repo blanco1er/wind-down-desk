@@ -136,8 +136,13 @@ export class LlmAgent implements Agent {
       throw new Error('unparseable talk reply');
     } catch (error) {
       this.noteFallback(error);
-      return this.fallback.talk(input);
+      return { ...(await this.fallback.talk(input)), source: this.fallbackSource() };
     }
+  }
+
+  /** Says honestly where an answer came from when the model failed (status and provider message, never a key). */
+  private fallbackSource(): string {
+    return `on-device fallback (${(this.stats.lastError ?? 'error').slice(0, 180)})`;
   }
 
   /**
@@ -180,7 +185,7 @@ export class LlmAgent implements Agent {
       throw new Error('unparseable talk reply');
     } catch (error) {
       this.noteFallback(error);
-      const r = await this.fallback.talk(input);
+      const r = { ...(await this.fallback.talk(input)), source: this.fallbackSource() };
       if (sent === 0 && !r.crisis) for (const s of spokenSentences(r.reply, true)) onSentence(s);
       return r;
     }
