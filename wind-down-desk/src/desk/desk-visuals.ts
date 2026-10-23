@@ -74,7 +74,12 @@ const MOVE_CHIP = { x: 0.27, w: 0.14 } as const;
 /** Touch words: 4 columns × 2 rows of 15.5 × 4.6 cm (24 Oct: was 3 rows, it stood over the bowls); the caption rises above. */
 const WORDS = { x: [-0.2475, -0.0825, 0.0825, 0.2475], step: 0.165, dy: [0.027, -0.027], lift: 0.09, max: 8 } as const;
 /** While the ritual menu is open by the lamp, the caption slides left so the two never overlap (ref. 02). */
-const CAPTION_ASIDE = -0.28;
+const CAPTION_ASIDE = -0.22;
+/** 25 Oct (Meta VR Glasses, ≈ 70° wide): while the ritual menu is open the caption is also 12 % smaller, so the
+ * caption, the menu and the lamp fit in one 66° view. */
+const CAPTION_ASIDE_SCALE = 0.84;
+/** 25 Oct (Meta VR Glasses): the near Places grid shifts 2.5 cm toward the lamp, so grid + lamp fit in 66°. */
+const GRID_NEAR_SHIFT = 0.04;
 /** Replies under the caption: capsules at 70 % of the plan chips' width (owner, 19 Oct: "the blocks are big"). */
 const REPLY_NARROW = 0.7;
 
@@ -99,7 +104,7 @@ const CAPTION_OVER_WORDS = 0.135;
 /** 24 Oct: five ritual rows (Talk it through joined): a little smaller and tighter, starting a little higher. */
 const RITUAL_ROWS = { farY: 0.47, farStep: 0.06, nearY: 0.47, nearStep: 0.053, scale: 0.9 } as const;
 /** Modal menus (Places, Move desk) come closer still: nothing else is touched while they are open. */
-const NEAR_MENU = { y: 0.25, z: 0.06, tilt: -0.7, spread: 0.8 } as const;
+const NEAR_MENU = { y: 0.25, z: 0.06, tilt: -0.7, spread: 0.77 } as const;
 type NearPane = typeof NEAR_WORDS | typeof NEAR_MENU;
 
 /** A point at (dx, dy) on the plane blended between the caption plane (k = 0) and a near plane (k = 1). */
@@ -1024,6 +1029,7 @@ export class DeskVisuals {
     cap.value *= 1 - Math.min(1, menuK * 2.5);
     this.asideSpring.target = this.ritualsOpen ? 1 : 0;
     const aside = this.asideSpring.step(dt, 150, 24);
+    this.caption.scale.setScalar(this.textK * (1 - (1 - CAPTION_ASIDE_SCALE) * Math.max(0, Math.min(1, aside))));
     const inPlace = PLACES[this.backdrop.place].photo != null;
     this.toggleSpring.target = inPlace ? 1 : 0;
     const tk = Math.max(0, Math.min(1, this.toggleSpring.step(dt, 150, 24)));
@@ -1079,7 +1085,7 @@ export class DeskVisuals {
     this.menuSpring.target = this.menuOpen ? 1 : 0;
     const menu = Math.max(0, this.menuSpring.step(dt, 200, 24));
     this.placeChips.forEach((chip, i) => {
-      chip.mesh.rotation.x = onNearPane(this.layout, GRID.x[i % GRID.x.length], GRID.dy[Math.floor(i / GRID.x.length) % GRID.dy.length], nk, chip.mesh.position);
+      chip.mesh.rotation.x = onNearPane(this.layout, GRID.x[i % GRID.x.length] + GRID_NEAR_SHIFT * nk, GRID.dy[Math.floor(i / GRID.x.length) % GRID.dy.length], nk, chip.mesh.position);
       const k = Math.min(1, Math.max(0, menu * 1.25 - i * 0.08));
       const hover = chip.hover.step(dt);
       chip.uniforms.uOpacity.value = k;
@@ -1089,7 +1095,7 @@ export class DeskVisuals {
     });
     {
       const k = Math.min(1, Math.max(0, menu * 1.25 - this.placeChips.length * 0.08));
-      this.moveChip.rotation.x = onNearPane(this.layout, MOVE_CHIP.x, GRID.dy[GRID.dy.length - 1] - 0.066, nk, this.moveChip.position);
+      this.moveChip.rotation.x = onNearPane(this.layout, MOVE_CHIP.x + GRID_NEAR_SHIFT * nk, GRID.dy[GRID.dy.length - 1] - 0.066, nk, this.moveChip.position);
       const hover = this.hover['move-desk'].step(dt);
       this.moveUniforms.uOpacity.value = k * (1 - this.dim * 0.4);
       this.moveUniforms.uHighlight.value = hover;
