@@ -9,7 +9,7 @@ import { cleanWeightTitle } from './weight.ts';
 import { SimulatedAgent } from './simulated.ts';
 import type { Agent, PlanInput, TomorrowPlan, WorryDraft } from './types.ts';
 
-import { crisisSignal, CRISIS_REPLY, TALK_SYSTEM } from './safety.ts';
+import { cleanSummary, crisisSignal, CRISIS_REPLY, TALK_SYSTEM } from './safety.ts';
 import { parseTalkReply, talkUser, type TalkInput, type TalkReply } from './talk.ts';
 
 export interface ChatMessage {
@@ -40,6 +40,8 @@ export class LlmAgent implements Agent {
   }
 
   async extract(text: string, existing: string[] = []): Promise<WorryDraft[]> {
+    // Never a stone, never a model call for a crisis sentence (the app shows help; safety.ts).
+    if (crisisSignal(text)) return [];
     try {
       this.stats.llmCalls++;
       const raw = await this.provider.complete(
@@ -85,6 +87,7 @@ export class LlmAgent implements Agent {
   }
 
   async summarize(text: string): Promise<string> {
+    if (crisisSignal(text)) return 'A heavy night';
     try {
       this.stats.llmCalls++;
       const raw = await this.provider.complete(
@@ -105,7 +108,7 @@ export class LlmAgent implements Agent {
 
   /** "Talk it through": crisis first (fixed answer, no call), then the model with a bounded history. */
   async talk(input: TalkInput): Promise<TalkReply> {
-    if (crisisSignal(input.text)) return { reply: CRISIS_REPLY, weights: [], summary: input.summary, crisis: true };
+    if (crisisSignal(input.text)) return { reply: CRISIS_REPLY, weights: [], summary: cleanSummary(input.summary), crisis: true };
     try {
       this.stats.llmCalls++;
       const raw = await this.provider.complete(

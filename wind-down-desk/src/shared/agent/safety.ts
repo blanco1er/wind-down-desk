@@ -9,18 +9,56 @@
  */
 import { normalize } from '../../logic/text.ts';
 
+// The person's own words (normalized: lower case, no apostrophes, no punctuation). Broad on purpose: a false alarm
+// shows a calm card with helplines; a miss is not acceptable (25 Oct, owner's live test: "…if I just ended it").
+const I = '(i|ill|i will|i would|id|i want to|i wanna|i should|i could|i might|im going to|im gonna|i am going to)';
 const CRISIS = [
-  /\b(kill|killing|hurt|hurting|harm|harming|cut|cutting) (myself|my self)\b/u,
-  /\b(suicide|suicidal|self harm|selfharm)\b/u,
-  /\bend (my|your|their|his|her|my own|your own) li(fe|ves)\b|\bend it all\b|\btake (my|your) (own )?life\b/u,
-  /\b(want|wanted|wish|going) to die\b|\bbetter off dead\b|\bnot (want|wanna) to (live|be alive|be here)\b/u,
-  /\bdont (want|wanna) to (live|be alive|be here|wake up)\b|\bno (reason|point) (to|in) (live|living|going on)\b/u,
+  /\b(kill|killing|hurt|hurting|harm|harming|cut|cutting|burn|burning|starve|starving) (myself|my self)\b/u,
+  /\b(suicide|suicidal|self harm|selfharm|self harming|overdose|overdosing)\b/u,
+  /\b(end|ending|ended|take|taking|took) (my|my own) li(fe|ves)\b/u,
+  /\bend(ed|ing)? it all\b|\bend everything\b|\bend it for good\b/u,
+  new RegExp(`\\b${I} (just )?(end|ended) it\\b`, 'u'),
+  /\bif i (just |simply )?(ended|end|finished) it\b|\bif i (just )?(was|were|wasnt|werent) (gone|dead|not here|not around)\b/u,
+  /\b(want|wanted|wish|going|ready|like) to die\b|\bwish i (was|were) dead\b|\bbetter off dead\b/u,
+  /\b(everyone|everybody|they|people|my family|the world|you all) (would|will|d) be better off (without me|if i)\b/u,
+  /\bbetter off without me\b|\bbetter off if i (was|were|wasnt|werent|died|disappeared|left for good)\b/u,
+  /\b(dont|do not|not) (want|wanna) to (live|be alive|be here anymore|exist anymore|exist)$|\b(dont|do not|not) (want|wanna) to (live|be alive|be here anymore|exist anymore)\b/u,
+  /\b(dont|do not|not) (want|wanna) to (wake up|keep going|go on)( again| anymore| ever| like this)?$/u,
+  /\bnever wake up again\b|\bwish i (could|would) (just )?(not wake up|never wake up|disappear|stop existing)\b/u,
+  /\bdisappear (forever|for good)\b|\bstop existing\b|\bno longer (be here|exist|be alive)\b/u,
+  /\bno (reason|point) (to|in) (live|living|going on|being here)\b|\bcant go on (anymore|like this)\b/u,
+  /\bjump (off|from) (a|the) (bridge|roof|building)\b/u,
+];
+
+// The model's words about the person (reply or rolling summary): the second net. Third person and second person.
+const CRISIS_ABOUT = [
+  /\b(suicid|self harm|selfharm|self harming|overdos)/u,
+  /\b(end|ending|ended|take|taking|took) (their|his|her|your|my) (own )?li(fe|ves)\b/u,
+  /\bthoughts? (of|about) (ending|dying|death|not living|not being here|hurting (themselves|yourself|himself|herself))\b/u,
+  /\b(kill|killing|hurt|hurting|harm|harming) (themselves|yourself|himself|herself|themself)\b/u,
+  /\b(wants?|wanting|wanted) to die\b|\bbetter off without (them|you|him|her)\b/u,
+  /\b(crisis line|helpline|hotline|emergency services|emergency number|988|samaritans|let a person help you)\b/u,
 ];
 
 /** True when the sentence speaks of suicide or self-harm (then: the fixed answer and the resources, nothing else). */
 export function crisisSignal(text: string): boolean {
   const n = normalize(text);
   return CRISIS.some((re) => re.test(n));
+}
+
+/** The second net: the model's reply or summary speaks of a crisis (even if the person's words were missed). */
+export function crisisInModelText(text: string): boolean {
+  const n = normalize(text);
+  return CRISIS.some((re) => re.test(n)) || CRISIS_ABOUT.some((re) => re.test(n));
+}
+
+/** A summary with every sentence touching a crisis removed: crisis content is never kept, never sent again. */
+export function cleanSummary(summary: string): string {
+  return summary
+    .split(/(?<=[.!?])\s+/u)
+    .filter((sentence) => !crisisInModelText(sentence))
+    .join(' ')
+    .trim();
 }
 
 export const CRISIS_REPLY = 'I am really glad you told me. You deserve support from a person right now. The helplines here are free, any time.';

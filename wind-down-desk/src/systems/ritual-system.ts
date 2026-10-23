@@ -38,7 +38,7 @@ import { answerOf, isForgetCommand } from '../logic/recall.ts';
 import { bubbleLines, DONE_BUBBLE } from '../logic/bubbles.ts';
 import { TtsPlayer } from '../voice/tts-player.ts';
 import { TALK_OPENING, talkClock, WIND_DOWN_LINE, type TalkReply, type TalkTurn } from '../shared/agent/talk.ts';
-import { crisisSignal, CRISIS_REPLY, HELP_ROWS } from '../shared/agent/safety.ts';
+import { cleanSummary, crisisInModelText, crisisSignal, CRISIS_REPLY, HELP_ROWS } from '../shared/agent/safety.ts';
 
 /** Seconds of silence before the example stone when suggestion bubbles are offered (8 s otherwise, onboarding.ts). */
 const BUBBLES_BEFORE_EXAMPLE = 14;
@@ -2450,11 +2450,21 @@ export class RitualSystem extends createSystem({
   private onTalkReply(talk: NonNullable<RitualSystem['talk']>, r: TalkReply): void {
     if (this.talk !== talk || this.mode !== 'talk') return;
     talk.busy = false;
-    talk.summary = r.summary;
+    // Third net, in the browser: whatever the server said, a reply about a crisis is a crisis.
+    const crisis = r.crisis || crisisInModelText(r.reply);
+    talk.summary = cleanSummary(r.summary);
+    if (crisis) {
+      // The crisis words never stay in the history sent again, and nothing becomes a stone.
+      const last = talk.turns.length - 1;
+      if (last >= 0 && talk.turns[last].who === 'you') talk.turns.splice(last, 1);
+      talk.queued = null;
+      this.showHelp();
+      this.lampSpeak(CRISIS_REPLY);
+      return;
+    }
     talk.turns.push({ who: 'lamp', text: r.reply });
     // The browser keeps a little more than the server uses (the server keeps 6): memory stays small.
     if (talk.turns.length > 24) talk.turns.splice(0, talk.turns.length - 24);
-    if (r.crisis) this.showHelp();
     for (const w of r.weights) {
       talk.weights.push(w);
       this.spawnStone({ title: w, detail: w, suggestion: 'let-go' }, 0.4, 'voice');

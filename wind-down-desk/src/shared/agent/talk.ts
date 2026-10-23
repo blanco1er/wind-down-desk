@@ -8,7 +8,7 @@
  *     the end;
  *   - a talk lasts up to 45 minutes: the lamp announces a gentle end 5 minutes before, never a hard cut.
  */
-import { crisisSignal, CRISIS_REPLY } from './safety.ts';
+import { cleanSummary, crisisInModelText, crisisSignal, CRISIS_REPLY } from './safety.ts';
 import { extractJson } from './parse.ts';
 
 export const TALK = {
@@ -90,12 +90,14 @@ export function parseTalkReply(raw: string, input: TalkInput): TalkReply | null 
   const j = extractJson(raw) as { reply?: unknown; weights?: unknown; summary?: unknown } | null;
   if (j == null || typeof j.reply !== 'string' || j.reply.trim().length === 0) return null;
   const reply = spokenCut(j.reply);
-  // A model reply that drifts into the crisis topic is replaced by the fixed one (defence in depth).
-  if (crisisSignal(reply)) return { reply: CRISIS_REPLY, weights: [], summary: input.summary, crisis: true };
+  const summary = typeof j.summary === 'string' ? j.summary.slice(0, TALK.summaryChars) : input.summary;
+  // The second net (25 Oct): the person's words were missed but the model's reply or summary speaks of a crisis →
+  // the fixed answer, the help card, no stone, and the crisis never stays in the summary.
+  if (crisisInModelText(reply) || crisisInModelText(summary)) return { reply: CRISIS_REPLY, weights: [], summary: cleanSummary(input.summary), crisis: true };
   return {
     reply,
     weights: mergeWeights(input.weights, Array.isArray(j.weights) ? j.weights : []),
-    summary: typeof j.summary === 'string' ? j.summary.slice(0, TALK.summaryChars) : input.summary,
+    summary: cleanSummary(summary),
     crisis: false,
   };
 }
@@ -106,7 +108,7 @@ export function talkUser(input: TalkInput): string {
     .map((t) => `${t.who === 'you' ? 'Person' : 'Lamp'}: ${t.text}`)
     .join('\n');
   return [
-    `Summary so far: ${input.summary.slice(0, TALK.summaryChars) || '(the talk just started)'}`,
+    `Summary so far: ${cleanSummary(input.summary).slice(0, TALK.summaryChars) || '(the talk just started)'}`,
     `Stones already on the desk: ${input.weights.join(', ') || 'none'}`,
     turns.length > 0 ? `Last exchanges:\n${turns}` : '',
     `Person now: """${input.text.slice(0, TALK.inputChars)}"""`,
@@ -128,7 +130,7 @@ const ASK = ['What part of it weighs the most?', 'How does it feel, now that it 
  * weighs with the same extraction as Unload. Calm and simple, never clever.
  */
 export function deviceTalk(input: TalkInput, extractTitles: (text: string) => string[], turnIndex: number): TalkReply {
-  if (crisisSignal(input.text)) return { reply: CRISIS_REPLY, weights: [], summary: input.summary, crisis: true };
+  if (crisisSignal(input.text)) return { reply: CRISIS_REPLY, weights: [], summary: cleanSummary(input.summary), crisis: true };
   if (input.closing === true) {
     return {
       reply: 'Thank you for talking it through with me. Let us let these stones go, one by one.',
@@ -141,7 +143,7 @@ export function deviceTalk(input: TalkInput, extractTitles: (text: string) => st
   const weights = mergeWeights(input.weights, titles);
   const key = weights[0] ?? titles[0] ?? 'This';
   const reply = `${REFLECT[turnIndex % REFLECT.length](key)} ${ASK[turnIndex % ASK.length]}`;
-  const summary = `${input.summary} ${input.text.slice(0, 120)}`.trim().slice(-TALK.summaryChars);
+  const summary = cleanSummary(`${input.summary} ${input.text.slice(0, 120)}`.trim()).slice(-TALK.summaryChars);
   return { reply: spokenCut(reply), weights, summary, crisis: false };
 }
 

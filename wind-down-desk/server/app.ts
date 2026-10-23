@@ -24,6 +24,7 @@ import { clientIp, DailyQuota, limitsFromEnv, originPolicy, type Bucket } from '
 import { createStaticHandler } from './static.ts';
 import { VisitLog } from './visits.ts';
 import { boundTurns, TALK } from '../src/shared/agent/talk.ts';
+import { cleanSummary } from '../src/shared/agent/safety.ts';
 import { DEFAULT_TTS_STYLE, TTS_BYTES_PER_SECOND, TTS_SAMPLE_RATE } from './providers/tts.ts';
 
 const MAX_JSON_BYTES = 32 * 1024;
@@ -249,12 +250,12 @@ export function createApp(options: AppOptions = {}): { server: Server; providers
         guard('talk', ip);
         const reply = await providers.agent.talk({
           text,
-          summary: typeof body.summary === 'string' ? body.summary.slice(0, TALK.summaryChars) : '',
+          summary: typeof body.summary === 'string' ? cleanSummary(body.summary.slice(0, TALK.summaryChars)) : '',
           turns: boundTurns(turns),
           weights: strings(body.weights, TALK.maxWeights),
           closing: body.closing === true,
         });
-        send(res, 200, { ...reply, agent: providers.agent.name }, origin);
+        send(res, 200, { ...reply, summary: cleanSummary(reply.summary), agent: providers.agent.name }, origin);
         return;
       }
       if (req.method === 'POST' && url.pathname === '/api/speak') {
