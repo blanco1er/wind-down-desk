@@ -36,6 +36,9 @@ import { easeToward, GAZE, gazeAngle, GazeFocus, gazePick, type GazeTarget } fro
 import { accessLine, DWELL_SELECT, parseAccessCommand, type AccessPrefs } from '../logic/access.ts';
 import { answerOf, isForgetCommand } from '../logic/recall.ts';
 import { bubbleLines, DONE_BUBBLE } from '../logic/bubbles.ts';
+import { TtsPlayer } from '../voice/tts-player.ts';
+import { TALK_OPENING, talkClock, WIND_DOWN_LINE, type TalkReply, type TalkTurn } from '../shared/agent/talk.ts';
+import { crisisSignal, CRISIS_REPLY, HELP_ROWS } from '../shared/agent/safety.ts';
 
 /** Seconds of silence before the example stone when suggestion bubbles are offered (8 s otherwise, onboarding.ts). */
 const BUBBLES_BEFORE_EXAMPLE = 14;
@@ -214,6 +217,13 @@ export class RitualSystem extends createSystem({
   private followUpIndex = 0;
   private followUpsDone = 0;
   private askStone: string | null = null;
+  /** 24 Oct — "Talk it through": the talk in progress (bounded history; talk.ts), and the lamp's dynamic voice. */
+  private talk: { summary: string; turns: TalkTurn[]; weights: string[]; startedAt: number; announced: boolean; busy: boolean; queued: string | null; closing: boolean } | null = null;
+  private tts: TtsPlayer | null = null;
+  /** After a refusal (no voice configured, budget reached), the voice is not asked again for a while: captions. */
+  private ttsRetryAt = 0;
+  /** The help card is on the desk (it goes when the talk or the ritual ends). */
+  private helpShown = false;
   /** Suggested replies (axe 4), decided ten times a second with the onboarding (no per-frame allocation). */
   private bubbles: string[] | null = null;
   private bubbleKey = '';
@@ -1105,6 +1115,13 @@ export class RitualSystem extends createSystem({
       return;
     }
     // Place and voice commands do not replace the last brain-dump line shown under the caption.
+    // 24 Oct — safety first, in every ritual: suicide or self-harm never becomes a stone or a model call; one gentle
+    // fixed answer and help resources on the desk (shared/agent/safety.ts).
+    if (crisisSignal(clean)) {
+      this.showHelp();
+      this.lampSpeak(CRISIS_REPLY);
+      return;
+    }
     // 23 Oct — accessibility by voice: "look to select", "high contrast", "bigger text" (and their "off").
     const accessCommand = parseAccessCommand(normalize(clean));
     if (accessCommand != null) {
@@ -1145,10 +1162,14 @@ export class RitualSystem extends createSystem({
       return;
     }
     // v6: ritual commands (whole sentences), then what each ritual does with free speech.
-    const where = this.mode === 'choose' || this.mode === 'breathe' || this.mode === 'release' || this.mode === 'unload' ? this.mode : 'other';
+    const where = this.mode === 'choose' || this.mode === 'breathe' || this.mode === 'release' || this.mode === 'unload' || this.mode === 'talk' ? this.mode : 'other';
     const ritualCommand = parseRitualCommand(clean, where);
     if (ritualCommand != null) {
       this.onRitualCommand(ritualCommand);
+      return;
+    }
+    if (this.mode === 'talk') {
+      this.onTalkSpeech(clean);
       return;
     }
     if (this.mode === 'choose') {
@@ -1301,7 +1322,7 @@ export class RitualSystem extends createSystem({
       const id = action.slice(7);
       if (id === 'sleep') {
         this.goodnight();
-      } else if (id === 'unload' || id === 'breathe' || id === 'release') {
+      } else if (id === 'unload' || id === 'breathe' || id === 'release' || id === 'talk') {
         this.startRitual(id, undefined, 'hand');
       }
       return;
@@ -1569,6 +1590,10 @@ export class RitualSystem extends createSystem({
       if (via === 'hand' && services.voice.state === 'off' && !services.style.quiet) void services.voice.start().then(() => this.refreshCaption());
       return;
     }
+    if (kind === 'talk') {
+      this.startTalk();
+      return;
+    }
     if (kind === 'breathe') {
       this.startBreathe();
       return;
@@ -1578,6 +1603,15 @@ export class RitualSystem extends createSystem({
 
   /** Cleans up Breathe / Release (no record): the globe goes home, the bowls come back. */
   private endCurrentRitual(): void {
+    if (this.mode === 'talk') {
+      // Another ritual chosen mid-talk: the lamp stops speaking; the stones of what weighs stay on the desk.
+      this.tts?.stop();
+      this.talk = null;
+    }
+    if (this.helpShown) {
+      this.helpShown = false;
+      this.visuals.hideCard();
+    }
     if (this.mode === 'breathe') {
       this.breath = null;
       this.visuals.living.setBreath(null);
@@ -1623,6 +1657,10 @@ export class RitualSystem extends createSystem({
 
   /** "Finish" / "that's enough": ends Breathe or Release gently, never abruptly. */
   private finishRitual(): void {
+    if (this.mode === 'talk') {
+      this.closeTalk();
+      return;
+    }
     if (this.mode === 'breathe' && this.breath != null) {
       this.breath.finish(this.elapsed);
       return;
@@ -2284,12 +2322,23 @@ export class RitualSystem extends createSystem({
       placed && this.mode === 'breathe' ? 'b' : '',
       this.visuals.placesOpen || this.visuals.ritualMenuOpen ? 'm' : '',
       this.ask != null ? `a${this.ask.key}` : '',
+      placed && this.mode === 'talk' ? `t${this.bubbleKey}:${this.talk?.closing === true ? 1 : 0}` : '',
     ].join('|');
     if (key === this.touchKey) return;
     this.touchKey = key;
     // Words grid (closed while a menu takes the same plane).
     const menu = this.visuals.placesOpen;
-    if (unloadDump && !menu && toSort === 0 && talkVoice) {
+    if (placed && this.mode === 'talk' && !menu) {
+      // Talk it through: suggestion bubbles when the person falls silent; without a microphone, Write… too.
+      const lines = this.bubbles ?? [];
+      const typing = services.style.quiet || mic === 'denied' || mic === 'unavailable';
+      const items = lines.map((label) => ({ label, dim: false, accent: false, wide: true }));
+      if (typing) items.push({ label: WRITE_LABEL, dim: false, accent: false, wide: false });
+      this.wordActions = items.map((w) =>
+        w.label === WRITE_LABEL ? () => requestWrite('unload', 'What is on your mind?', (text) => void this.handleUtterance(text)) : () => this.onBubble(w.label),
+      );
+      this.visuals.setWords(items.length > 0 ? items : null);
+    } else if (unloadDump && !menu && toSort === 0 && talkVoice) {
       const lines = this.bubbles;
       this.wordActions = (lines ?? []).map((line) => () => this.onBubble(line));
       this.visuals.setWords(lines == null ? null : lines.map((label) => ({ label, dim: false, accent: label === DONE_BUBBLE, wide: true })));
@@ -2310,6 +2359,9 @@ export class RitualSystem extends createSystem({
     if (this.ask != null) {
       this.replyActions = this.ask.actions;
       this.visuals.setReplies(this.ask.labels);
+    } else if (placed && this.mode === 'talk' && this.talk?.closing !== true) {
+      this.replyActions = [() => this.closeTalk()];
+      this.visuals.setReplies(['That’s all']);
     } else if (p != null && this.mode === 'choose') {
       // "One bus stop" (23 Oct): once a ritual is done tonight, the way out is always one touch away.
       const canEnd = services.memory.doneTonight().length > 0 && p.ritual !== 'sleep';
@@ -2322,6 +2374,148 @@ export class RitualSystem extends createSystem({
       this.replyActions = [];
       this.visuals.setReplies(null);
     }
+  }
+
+  // ------------------------------------------------------- Talk it through
+
+  /** The lamp's dynamic voice, created once the scene's audio listener exists (null before). */
+  private ttsPlayer(): TtsPlayer | null {
+    if (this.tts != null) return this.tts;
+    let listener: { context: AudioContext; getInput(): AudioNode } | null = null;
+    this.player.head.traverse((o) => {
+      const l = o as unknown as { type?: string; context?: AudioContext; getInput?: () => AudioNode };
+      if (l.type === 'AudioListener' && l.context != null && l.getInput != null) listener = l as { context: AudioContext; getInput(): AudioNode };
+    });
+    if (listener == null) return null;
+    const found = listener as { context: AudioContext; getInput(): AudioNode };
+    this.tts = new TtsPlayer(found.context, found.getInput());
+    return this.tts;
+  }
+
+  /**
+   * The lamp says something new (not from the voice catalogue): the caption at once, and the dynamic voice from the
+   * lamp when the server has one. Unavailable (no voice, budget, network) → the caption alone, never silence alone.
+   */
+  private lampSpeak(text: string, sub = ''): void {
+    this.say(text, sub);
+    const player = this.ttsPlayer();
+    if (player == null || this.voice.muted || this.voice.quiet || this.elapsed < this.ttsRetryAt) return;
+    void player.speak(text).then((r) => {
+      if (r === 'unavailable') {
+        this.ttsRetryAt = this.elapsed + 30;
+        track('talk', { event: 'voice-unavailable' }, 'talk:voice-unavailable');
+      }
+    });
+  }
+
+  /** "Talk it through": a calm place, the lamp listens; what weighs becomes stones; up to 45 minutes. */
+  private startTalk(): void {
+    this.mode = 'talk';
+    this.setStonesAway(false);
+    this.visuals.bowlsAwayTarget = 0;
+    this.talk = { summary: '', turns: [], weights: [], startedAt: this.elapsed, announced: false, busy: false, queued: null, closing: false };
+    this.lastActivity = this.elapsed;
+    // A calm place (owner): from your room, the lake at night; from a place, you stay where you are. The lamp
+    // speaks once the place has been named (its caption first, then the lamp's).
+    const travel = this.visuals.backdrop.place === 'room';
+    if (travel) void this.goPlace('moon-lake', 'voice');
+    if (services.voice.state === 'off' && !services.style.quiet) void services.voice.start();
+    const talk = this.talk;
+    window.setTimeout(
+      () => {
+        if (this.talk === talk) this.lampSpeak(TALK_OPENING, services.style.quiet ? 'Touch a sentence below, or Write….' : 'Speak freely. Say "that’s all" to end.');
+      },
+      travel ? 3600 : 0,
+    );
+    track('talk', { event: 'start' }, 'talk:start');
+  }
+
+  private onTalkSpeech(text: string): void {
+    const talk = this.talk;
+    if (talk == null || talk.closing) return;
+    this.lastActivity = this.elapsed;
+    if (talk.busy) {
+      talk.queued = talk.queued == null ? text : `${talk.queued} ${text}`;
+      return;
+    }
+    // You speak: the lamp stops talking at once (barge-in) and thinks, visibly.
+    this.tts?.stop();
+    talk.busy = true;
+    this.say(this.baseCaption.text || TALK_OPENING, `"${text.length > 70 ? `${text.slice(0, 67)}…` : text}"`);
+    const input = { text, summary: talk.summary, turns: talk.turns.slice(), weights: talk.weights.slice(), closing: false };
+    talk.turns.push({ who: 'you', text });
+    void services.agent.talk(input).then((r) => this.onTalkReply(talk, r));
+  }
+
+  private onTalkReply(talk: NonNullable<RitualSystem['talk']>, r: TalkReply): void {
+    if (this.talk !== talk || this.mode !== 'talk') return;
+    talk.busy = false;
+    talk.summary = r.summary;
+    talk.turns.push({ who: 'lamp', text: r.reply });
+    // The browser keeps a little more than the server uses (the server keeps 6): memory stays small.
+    if (talk.turns.length > 24) talk.turns.splice(0, talk.turns.length - 24);
+    if (r.crisis) this.showHelp();
+    for (const w of r.weights) {
+      talk.weights.push(w);
+      this.spawnStone({ title: w, detail: w, suggestion: 'let-go' }, 0.4, 'voice');
+    }
+    this.lampSpeak(r.reply);
+    track('talk', { event: 'turn' });
+    if (talk.queued != null) {
+      const q = talk.queued;
+      talk.queued = null;
+      this.onTalkSpeech(q);
+    }
+  }
+
+  /** The end, always gentle: a closing line, then the stones of what weighs are let go one by one (Unload). */
+  private closeTalk(): void {
+    const talk = this.talk;
+    if (talk == null || talk.closing) return;
+    talk.closing = true;
+    talk.busy = true;
+    void services.agent
+      .talk({ text: 'That is all for tonight.', summary: talk.summary, turns: talk.turns.slice(), weights: talk.weights.slice(), closing: true })
+      .then((r) => {
+        if (this.talk !== talk) return;
+        talk.busy = false;
+        this.lampSpeak(r.reply);
+        window.setTimeout(() => this.endTalk(talk), Math.max(4, r.reply.length / 12 + 2) * 1000);
+      });
+  }
+
+  private endTalk(talk: NonNullable<RitualSystem['talk']>): void {
+    if (this.talk !== talk || this.mode !== 'talk') return;
+    this.talk = null;
+    track('talk', { event: 'end' }, 'talk:end');
+    if (this.helpShown) {
+      this.helpShown = false;
+      this.visuals.hideCard();
+    }
+    if (this.session.unsorted().length > 0) {
+      track('ritual-done', { kind: 'talk' }, 'ritual-done:talk');
+      services.memory.recordRitual('talk');
+      this.mode = 'choose';
+      this.startRitual('unload', undefined, 'hand');
+      this.flash('Let them go, one by one. Or keep one for tomorrow.', 6);
+      return;
+    }
+    this.completeRitual('talk');
+  }
+
+  /** Help resources on the desk (checked on their official sites, safety.ts). Stays until the person moves on. */
+  private showHelp(): void {
+    this.helpShown = true;
+    this.visuals.showCard(
+      {
+        title: 'You are not alone',
+        subtitle: 'Free, confidential help, any time',
+        rows: HELP_ROWS.map((r) => ({ time: '', title: r.title, detail: r.detail })),
+        footer: 'Wind-Down Desk is not therapy or medical advice.',
+        accent: DS.text.primary,
+      },
+      false,
+    );
   }
 
   /** A touched (or gazed) suggestion bubble: exactly as if the sentence had been said. */
@@ -2452,7 +2646,7 @@ export class RitualSystem extends createSystem({
 
   private refreshOrb(): void {
     const voice = services.voice;
-    this.visuals.orbState(voice.state === 'listening', this.extracting > 0 || this.planBusy, voice.level, 0, voice.state === 'muted');
+    this.visuals.orbState(voice.state === 'listening', this.extracting > 0 || this.planBusy || this.talk?.busy === true, voice.level, 0, voice.state === 'muted');
   }
 
   private orbLocal(): Vec3 {
@@ -2511,6 +2705,23 @@ export class RitualSystem extends createSystem({
       services.voice.holdUntil = now + 300;
     }
     this.visuals.voiceLevel = this.voice.level(this.elapsed);
+    // The dynamic voice (Talk it through): spatial, from the lamp; the mic ignores it; it lights the lamp.
+    if (this.tts != null) {
+      this.tts.tick();
+      if (this.tts.speaking) {
+        services.voice.holdUntil = now + 300;
+        this.visuals.voiceLevel = this.tts.level;
+        this.visuals.orb.getWorldPosition(this.ttsAt);
+        this.tts.place(this.ttsAt.x, this.ttsAt.y, this.ttsAt.z);
+      }
+    }
+    if (this.mode === 'talk' && this.talk != null && !this.talk.closing) {
+      const c = talkClock((this.elapsed - this.talk.startedAt) / 60, this.talk.announced);
+      if (c === 'announce') {
+        this.talk.announced = true;
+        this.lampSpeak(WIND_DOWN_LINE);
+      } else if (c === 'close') this.closeTalk();
+    }
     services.voice.tick(now);
 
     const xrFrame = this.xrFrame;
@@ -2580,7 +2791,7 @@ export class RitualSystem extends createSystem({
       }
       this.visuals.orbState(demo === 'listen', demo === 'think', level, demo === 'look' ? 0.6 : 0, false);
     } else {
-      this.visuals.orbState(preview || services.voice.state === 'listening', this.extracting > 0 || this.planBusy, services.voice.level, preview ? 0.6 : this.lampGazeK * 0.6, services.voice.state === 'muted');
+      this.visuals.orbState(preview || services.voice.state === 'listening', this.extracting > 0 || this.planBusy || this.talk?.busy === true, services.voice.level, preview ? 0.6 : this.lampGazeK * 0.6, services.voice.state === 'muted');
     }
     this.visuals.update(dt);
     this.refreshTouch();
@@ -3013,15 +3224,18 @@ export class RitualSystem extends createSystem({
     const t = this.session.tally(this.tallies);
     // Voice evenings with a working microphone get suggestion bubbles when they hesitate; otherwise the word grid.
     const mic = services.voice.state;
+    // Talking it through: bubbles whatever the microphone (touch works too), only while the lamp is quiet.
+    const talking = this.mode === 'talk' && this.talk != null;
+    const lampQuiet = !talking || (!this.talk!.busy && !this.talk!.closing && !(this.tts?.speaking ?? false));
     const bubbles =
-      placed && mic !== 'denied' && mic !== 'unavailable'
+      placed && (talking || (mic !== 'denied' && mic !== 'unavailable'))
         ? bubbleLines({
             quiet: services.style.quiet,
             mode: this.mode,
             phase: this.ritual.phase,
             stones: t.sorted + t.unsorted,
             toSort: t.unsorted,
-            idle: this.elapsed - this.lastActivity,
+            idle: lampQuiet ? this.elapsed - this.lastActivity : 0,
             used: this.usedBubbles,
             seed: new Date().getDate(),
           })
@@ -3073,6 +3287,7 @@ export class RitualSystem extends createSystem({
   }
 
   private ghostTrailT = 0;
+  private readonly ttsAt = new Vector3();
 
   private animateGhost(dt: number, holding: boolean): void {
     const stone = this.ghostStone != null ? this.stones.get(this.ghostStone) : undefined;
@@ -3143,6 +3358,25 @@ export class RitualSystem extends createSystem({
         return deskToWorld(this.frame, { x: def.x, y: 0.03, z: def.z });
       },
       press: (action: string) => this.onButton(action),
+      /** Talk it through (tests): its state; `minutes` moves its clock (e.g. 41 → the end is announced). */
+      talk: (minutes?: number) => {
+        if (minutes != null && this.talk != null) this.talk.startedAt = this.elapsed - minutes * 60;
+        const t = this.talk;
+        return {
+          mode: this.mode,
+          active: t != null,
+          busy: t?.busy ?? false,
+          closing: t?.closing ?? false,
+          turns: t?.turns.length ?? 0,
+          weights: t?.weights.slice() ?? [],
+          summary: t?.summary ?? '',
+          speaking: this.tts?.speaking ?? false,
+          level: +(this.tts?.level ?? 0).toFixed(2),
+          voiceRetryIn: Math.max(0, +(this.ttsRetryAt - this.elapsed).toFixed(1)),
+          card: (this.visuals as unknown as { card: { visible: boolean } }).card.visible,
+          caption: this.baseCaption.text,
+        };
+      },
       /** The lamp's states on demand (axe 4 captures): idle, listen, speak, think, look; null gives it back. */
       lamp: (state: 'idle' | 'listen' | 'speak' | 'think' | 'look' | null) => {
         this.lampDemo = state;

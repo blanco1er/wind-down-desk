@@ -331,15 +331,17 @@ export class CaptionCanvas {
     const W = this.w;
     const H = this.h;
     ctx.clearRect(0, 0, W, H);
-    let lines = wrapLines(text, 36, 2);
+    // 24 Oct (Talk it through): a longer sentence of the lamp gets three smaller lines rather than an ellipsis.
+    const long = text.length > 76;
+    let lines = wrapLines(text, long ? 54 : 36, long ? 3 : 2);
     // Primary: 52 px ≈ 24 mm. Secondary: 32 px ≈ 15 mm.
-    let size = 56;
+    let size = long ? 46 : 56;
     ctx.font = `600 ${size}px ${FONT}`;
     if (lines.length === 2 && !lines[1].endsWith('…')) {
       // Two balanced lines, never a lone word on the second one.
       lines = balance(text.replace(/\s+/gu, ' ').trim().split(' '), 2, (l) => ctx.measureText(l).width);
     }
-    while (size > 38 && lines.some((l) => ctx.measureText(l).width > W - 180)) {
+    while (size > (long ? 34 : 38) && lines.some((l) => ctx.measureText(l).width > W - 180)) {
       size -= 2;
       ctx.font = `600 ${size}px ${FONT}`;
     }
@@ -733,7 +735,7 @@ export function drawImmersionToggle(full: boolean): CanvasTexture {
  * v6: one row of the ritual menu by the lamp: a round glyph, the name, a one-line description,
  * a quiet count of evenings (reason to come back), and the lamp's warm tint on the proposed ritual.
  */
-export function drawRitualChip(id: 'unload' | 'breathe' | 'release' | 'sleep', name: string, sub: string, proposed: boolean, evenings: number): CanvasTexture {
+export function drawRitualChip(id: 'unload' | 'breathe' | 'release' | 'talk' | 'sleep', name: string, sub: string, proposed: boolean, evenings: number): CanvasTexture {
   const { canvas, ctx } = chipCanvas();
   glass(ctx, 10, 10, 748, 204, 102);
   if (proposed) {
@@ -777,6 +779,22 @@ export function drawRitualChip(id: 'unload' | 'breathe' | 'release' | 'sleep', n
     ctx.beginPath();
     ctx.arc(cx, cy, 36, 0, Math.PI * 2);
     ctx.fill();
+  } else if (id === 'talk') {
+    // A soft speech bubble with three small waves of voice.
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 6, 34, 24, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, cy + 15);
+    ctx.lineTo(cx - 22, cy + 32);
+    ctx.lineTo(cx - 2, cy + 17);
+    ctx.stroke();
+    for (const dx of [-13, 0, 13]) {
+      ctx.beginPath();
+      ctx.arc(cx + dx, cy - 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   } else if (id === 'release') {
     ctx.lineWidth = 5;
     for (const [rx, a] of [[14, 1], [28, 0.7], [42, 0.4]] as const) {

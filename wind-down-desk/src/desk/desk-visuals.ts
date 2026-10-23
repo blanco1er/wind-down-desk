@@ -74,7 +74,7 @@ const MOVE_CHIP = { x: 0.27, w: 0.14 } as const;
 /** Touch words: 4 columns × 2 rows of 15.5 × 4.6 cm (24 Oct: was 3 rows, it stood over the bowls); the caption rises above. */
 const WORDS = { x: [-0.2475, -0.0825, 0.0825, 0.2475], step: 0.165, dy: [0.027, -0.027], lift: 0.09, max: 8 } as const;
 /** While the ritual menu is open by the lamp, the caption slides left so the two never overlap (ref. 02). */
-const CAPTION_ASIDE = -0.15;
+const CAPTION_ASIDE = -0.28;
 /** Replies under the caption: capsules at 70 % of the plan chips' width (owner, 19 Oct: "the blocks are big"). */
 const REPLY_NARROW = 0.7;
 
@@ -96,6 +96,8 @@ const NEAR_WORDS = { y: 0.29, z: 0.02, tilt: -0.5, spread: 0.86 } as const;
  * m above the table), and the caption rises above the words by as much (`CAPTION_OVER_WORDS`), still under eye level.
  */
 const CAPTION_OVER_WORDS = 0.135;
+/** 24 Oct: five ritual rows (Talk it through joined): a little smaller and tighter, starting a little higher. */
+const RITUAL_ROWS = { farY: 0.47, farStep: 0.06, nearY: 0.47, nearStep: 0.053, scale: 0.9 } as const;
 /** Modal menus (Places, Move desk) come closer still: nothing else is touched while they are open. */
 const NEAR_MENU = { y: 0.25, z: 0.06, tilt: -0.7, spread: 0.8 } as const;
 type NearPane = typeof NEAR_WORDS | typeof NEAR_MENU;
@@ -175,6 +177,7 @@ export class DeskVisuals {
   private readonly worldTmp = new Vector3();
   private readonly headLocal = new Vector3();
   private readonly eyeLocal = new Vector3();
+  private ritualModalK = 0;
   /** The lamp's aura (axe 4) and what it needs each frame (no allocation). */
   private readonly spirit: LampSpirit;
   private readonly spiritLook = new Vector3();
@@ -468,7 +471,7 @@ export class DeskVisuals {
       const material = createCardMaterial(drawRitualChip(row.id, row.name, row.sub, false, 0));
       const mesh = new Mesh(createQuad(0.19, 0.0553), material);
       // v8: a little higher and further back, so the Let go bowl's rim never covers the last row.
-      mesh.position.set(layout.orb.x - 0.03, 0.375 - i * 0.066, layout.orb.z - 0.09);
+      mesh.position.set(layout.orb.x - 0.03, RITUAL_ROWS.farY - i * RITUAL_ROWS.farStep, layout.orb.z - 0.09);
       mesh.rotation.set(-0.18, -0.2, 0, 'YXZ');
       mesh.renderOrder = 8;
       mesh.visible = false;
@@ -1096,15 +1099,19 @@ export class DeskVisuals {
     const placesHover = this.hover.places.step(dt);
     const ornamentOpacity = Math.min(1, this.reveal * 1.2) * this.uiK * (1 - this.dim * 0.5);
     // v7: while the Places menu is open its own button steps away (the rows close the menu; no duplicate control).
-    this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6);
+    // 24 Oct: the ritual menu is modal too: Places and Sound step away while it is open (one menu at a time; and the
+    // fifth ritual row costs no draw call: 25 per eye at most).
+    this.ritualModalK = approach(this.ritualModalK, this.ritualsOpen ? 1 : 0, 6, dt);
+    const modal = 1 - this.ritualModalK;
+    this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal;
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.
-    this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6);
+    this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6) && this.ritualModalK < 0.95;
     this.ritualsOrnament.visible = !this.ornamentsHidden;
-    this.voiceButton.visible = !this.ornamentsHidden;
+    this.voiceButton.visible = !this.ornamentsHidden && this.ritualModalK < 0.95;
     this.ornamentUniforms.uHighlight.value = placesHover;
     this.ornament.scale.setScalar((1 + 0.06 * placesHover) * (1 - 0.12 * Math.min(1, menu)));
     const voiceHover = this.hover.voice.step(dt);
-    this.voiceUniforms.uOpacity.value = ornamentOpacity;
+    this.voiceUniforms.uOpacity.value = ornamentOpacity * modal;
     this.voiceUniforms.uHighlight.value = voiceHover;
     this.voiceButton.scale.setScalar(1 + 0.06 * voiceHover);
     const keepHover = this.hover.keep.step(dt);
@@ -1136,8 +1143,10 @@ export class DeskVisuals {
       this.keepChip.rotation.x = PANE.tilt;
       this.lighterChip.rotation.x = PANE.tilt;
     } else {
-      this.keepChip.position.set(-0.085 * ck, 0.088 + 0.006 * keepHover, -this.layout.depth / 2 + 0.03);
-      this.lighterChip.position.set(0.085 * ck, 0.088 + 0.006 * lighterHover, -this.layout.depth / 2 + 0.03);
+      // Replies (no card) sit 2 cm higher than the plan card's chips: clear of the tray behind the bowls.
+      const chipY = this.cardTarget === 0 ? 0.108 : 0.088;
+      this.keepChip.position.set(-0.085 * ck, chipY + 0.006 * keepHover, -this.layout.depth / 2 + 0.03);
+      this.lighterChip.position.set(0.085 * ck, chipY + 0.006 * lighterHover, -this.layout.depth / 2 + 0.03);
       this.keepChip.rotation.x = -0.7;
       this.lighterChip.rotation.x = -0.7;
     }
@@ -1227,7 +1236,7 @@ export class DeskVisuals {
         // Let go bowl, lower (≈ 60 cm).
         chip.mesh.position.set(
           this.layout.orb.x - 0.03 + (0.2 - (this.layout.orb.x - 0.03)) * rowK,
-          0.375 - i * 0.066 + (0.34 - i * 0.058 - (0.375 - i * 0.066)) * rowK,
+          RITUAL_ROWS.farY - i * RITUAL_ROWS.farStep + (RITUAL_ROWS.nearY - i * RITUAL_ROWS.nearStep - (RITUAL_ROWS.farY - i * RITUAL_ROWS.farStep)) * rowK,
           this.layout.orb.z - 0.09 + (0.06 - (this.layout.orb.z - 0.09)) * rowK,
         );
         const p = chip.mesh.position;
@@ -1237,7 +1246,7 @@ export class DeskVisuals {
       const hover = chip.hover.step(dt);
       chip.uniforms.uOpacity.value = kk;
       chip.uniforms.uHighlight.value = hover;
-      chip.mesh.scale.setScalar((0.9 + 0.1 * kk) * (1 + 0.04 * hover));
+      chip.mesh.scale.setScalar((0.9 + 0.1 * kk) * (1 + 0.04 * hover) * RITUAL_ROWS.scale);
       if (!this.ritualsOpen && rm < 0.02) chip.mesh.visible = false;
     });
     const ritualsHover = this.hover.rituals.step(dt);

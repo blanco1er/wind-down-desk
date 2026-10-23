@@ -23,6 +23,10 @@ export const WORRY_BUBBLES = [
 
 export const DONE_BUBBLE = 'That’s all for tonight.';
 
+/** "Talk it through": when the person falls silent (8 s, the lamp quiet), three ways to go on. */
+export const TALK_BUBBLES = ['Today was a lot.', 'Something is on my mind.', 'Can we talk about tomorrow?', 'I feel tired, that is all.', 'Let’s breathe together.'] as const;
+export const TALK_HESITATE_AFTER = 8;
+
 export interface BubbleContext {
   /** Talk evening (voice) or quiet (touch words instead). */
   quiet: boolean;
@@ -40,6 +44,15 @@ export interface BubbleContext {
 }
 
 export function bubbleLines(c: BubbleContext): string[] | null {
+  if (c.mode === 'talk') {
+    if (c.idle < TALK_HESITATE_AFTER) return null;
+    const fresh: string[] = [];
+    for (let k = 0; k < TALK_BUBBLES.length && fresh.length < 3; k++) {
+      const line = TALK_BUBBLES[(c.seed + k) % TALK_BUBBLES.length];
+      if (!c.used.has(line)) fresh.push(line);
+    }
+    return fresh.length > 0 ? fresh : null;
+  }
   if (c.quiet || c.mode !== 'unload' || c.phase !== 'dump' || c.toSort > 0 || c.idle < HESITATE_AFTER) return null;
   const fresh: string[] = [];
   for (let k = 0; k < WORRY_BUBBLES.length && fresh.length < 3; k++) {

@@ -4,6 +4,7 @@
  * plan; the user confirms each with a pinch or a word.
  */
 import type { BinId } from '../../logic/desk-layout.ts';
+import type { TalkInput, TalkReply } from './talk.ts';
 
 export interface WorryDraft {
   /** Short label printed on the stone (≤ 28 chars). */
@@ -49,6 +50,8 @@ export interface Agent {
   plan(input: PlanInput): Promise<TomorrowPlan>;
   /** Release: what weighs on them → the few words engraved on the dark stone (≤ 4 words). */
   summarize(text: string): Promise<string>;
+  /** "Talk it through": one turn of a free conversation (bounded history, safety first; talk.ts). */
+  talk(input: TalkInput): Promise<TalkReply>;
 }
 
 export const LIMITS = {

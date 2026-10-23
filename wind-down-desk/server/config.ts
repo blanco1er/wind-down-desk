@@ -18,12 +18,15 @@ import { SimulatedAgent } from '../src/shared/agent/simulated.ts';
 import type { Agent } from '../src/shared/agent/types.ts';
 import { OpenAICompatibleChat } from './providers/llm.ts';
 import { OpenAICompatibleStt, SimulatedStt, type SttProvider } from './providers/stt.ts';
+import { ttsFromEnv, type TtsProvider } from './providers/tts.ts';
 
 export type Env = Record<string, string | undefined>;
 
 export interface Providers {
   agent: Agent;
   stt: SttProvider;
+  /** The lamp's dynamic voice ("Talk it through"); null → captions only (and the fixed recorded lines). */
+  tts?: TtsProvider | null;
   simulated: { agent: boolean; stt: boolean };
 }
 
@@ -67,5 +70,5 @@ export function resolveProviders(env: Env, hooks: { onUsage?: (tokens: number) =
     });
     simulatedStt = false;
   }
-  return { agent, stt, simulated: { agent: simulatedAgent, stt: simulatedStt } };
+  return { agent, stt, tts: ttsFromEnv(env), simulated: { agent: simulatedAgent, stt: simulatedStt } };
 }

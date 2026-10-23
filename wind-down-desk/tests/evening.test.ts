@@ -44,7 +44,7 @@ test('proposal from the time and from tonight (chain: Unload → Release → Bre
 test('every proposal line is pre-voiced', () => {
   const keys = new Set(lampLines().map(lineKey));
   for (const line of Object.values(PROPOSAL_LINES)) assert.ok(keys.has(lineKey(line)), `not voiced: ${line}`);
-  assert.deepEqual(RITUAL_MENU.map((r) => r.name), ['Unload', 'Breathe', 'Release', 'Good night']);
+  assert.deepEqual(RITUAL_MENU.map((r) => r.name), ['Unload', 'Breathe', 'Release', 'Talk it through', 'Good night']);
 });
 
 test('ritual commands: whole sentences only, phase-aware', () => {

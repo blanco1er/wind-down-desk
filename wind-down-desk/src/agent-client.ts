@@ -5,6 +5,7 @@
  */
 import { SimulatedAgent } from './shared/agent/simulated.ts';
 import type { PlanInput, TomorrowPlan, WorryDraft } from './shared/agent/types.ts';
+import { boundTurns, type TalkInput, type TalkReply } from './shared/agent/talk.ts';
 
 export interface AgentStatus {
   mode: 'server' | 'device';
@@ -111,6 +112,29 @@ export class AgentClient {
       }
     }
     return this.local.summarize(text);
+  }
+
+  /** "Talk it through": one turn (server model when reachable, else the on-device listener; safety first in both). */
+  async talk(input: TalkInput): Promise<TalkReply> {
+    if (this.status.mode === 'server') {
+      try {
+        return await withTimeout(12_000, async (signal) => {
+          const res = await fetch(`${API}/talk`, {
+            method: 'POST',
+            signal,
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ ...input, turns: boundTurns(input.turns) }),
+          });
+          if (!res.ok) {
+            throw new Error(String(res.status));
+          }
+          return (await res.json()) as TalkReply;
+        });
+      } catch {
+        // fall through to on-device
+      }
+    }
+    return this.local.talk(input);
   }
 
   /** Server-side transcription. Returns null when no server is reachable. */

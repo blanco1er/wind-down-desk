@@ -42,6 +42,23 @@ services:
       # Gemini 3 always thinks; "low" keeps answers quick (minimal | low | medium | high).
       - key: LLM_REASONING_EFFORT
         value: low
+      # 24 Oct — the lamp's dynamic voice ("Talk it through"): Gemini TTS, the owner's choice. Its key is LLM_API_KEY
+      # (the same Gemini key, server side only); a TTS_API_KEY (sync: false) would override it.
+      - key: TTS_MODEL
+        value: gemini-3.8-flash-lite-tts
+      - key: TTS_VOICE
+        value: Achernar
+      - key: TTS_STYLE
+        value: soft, warm, almost whispered, slow and calm, like a quiet friend late at night
+      # Voice budget: 60 min of the lamp's voice per visitor per day, 6 h for everyone (≈ 3.24 $/day at most).
+      - key: WDD_DAILY_TTS_SECONDS_PER_IP
+        value: "3600"
+      - key: WDD_DAILY_TTS_SECONDS_TOTAL
+        value: "21600"
+      - key: WDD_DAILY_TALK_PER_IP
+        value: "240"
+      - key: WDD_DAILY_TALK_TOTAL
+        value: "6000"
       # Cost guards (server/guards.ts). Over a limit: 429, and the app carries on with its on-device agent.
       - key: WDD_DAILY_STT_PER_IP
         value: "150"

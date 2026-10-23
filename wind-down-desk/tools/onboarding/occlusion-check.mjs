@@ -49,6 +49,7 @@ export default async function run({ frame, page, cdp }) {
       const panels = [];
       if (visible(v.caption) && v.captionUniforms.uOpacity.value > 0.05) panels.push(['caption', quad(v.caption)]);
       v.wordChips.forEach((c, i) => visible(c.mesh) && c.uniforms.uOpacity.value > 0.05 && panels.push([`word ${c.label ?? i}`, quad(c.mesh)]));
+      v.ritualChips.forEach((c) => visible(c.mesh) && c.uniforms.uOpacity.value > 0.05 && panels.push([`ritual ${c.id}`, quad(c.mesh)]));
       if (visible(v.keepChip)) panels.push(['reply 1', quad(v.keepChip)]);
       if (visible(v.lighterChip)) panels.push(['reply 2', quad(v.lighterChip)]);
       const obstacles = [];

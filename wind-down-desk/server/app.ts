@@ -6,6 +6,8 @@
  *   POST /api/plan            { tomorrow, later, letGoCount, lighter? } → { plan, agent }
  *   POST /api/summarize       { text }                                  → { title, agent }   (Release stone, ≤ 4 words)
  *   POST /api/transcribe      raw audio body (audio/*, ≤ WDD_MAX_AUDIO_BYTES) → { text, provider, simulated }
+ *   POST /api/talk            { text, summary, turns, weights, closing } → { reply, weights, summary, crisis, agent }
+ *   POST /api/speak           { text } → audio/L16 24 kHz mono, streamed (Gemini TTS; 503 when no voice)
  *   POST /api/visit           anonymous step beacon (server/visits.ts)  → 204
  *   GET  /api/visits/export   owner only (Bearer WDD_VISITS_TOKEN)      → { events, usage }
  *   GET  /*                   the Vite build (server/static.ts) when `staticDir` is given (production)
@@ -21,6 +23,8 @@ import { resolveProviders, type Env, type Providers } from './config.ts';
 import { clientIp, DailyQuota, limitsFromEnv, originPolicy, type Bucket } from './guards.ts';
 import { createStaticHandler } from './static.ts';
 import { VisitLog } from './visits.ts';
+import { boundTurns, TALK } from '../src/shared/agent/talk.ts';
+import { DEFAULT_TTS_STYLE, TTS_BYTES_PER_SECOND, TTS_SAMPLE_RATE } from './providers/tts.ts';
 
 const MAX_JSON_BYTES = 32 * 1024;
 const MAX_BEACON_BYTES = 2 * 1024;
@@ -161,7 +165,7 @@ export function createApp(options: AppOptions = {}): { server: Server; providers
       }
 
       if (req.method === 'GET' && url.pathname === '/api/health') {
-        send(res, 200, { ok: true, agent: providers.agent.name, stt: providers.stt.name, simulated: providers.simulated }, origin);
+        send(res, 200, { ok: true, agent: providers.agent.name, stt: providers.stt.name, tts: providers.tts?.name ?? null, simulated: providers.simulated }, origin);
         return;
       }
       if (req.method === 'POST' && url.pathname === '/api/visit') {
@@ -230,6 +234,64 @@ export function createApp(options: AppOptions = {}): { server: Server; providers
         guard('agent', ip);
         const plan = await providers.agent.plan(input);
         send(res, 200, { plan, agent: providers.agent.name }, origin);
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/talk') {
+        // "Talk it through" (24 Oct): one turn; the history is bounded by the client and again here (talk.ts).
+        const body = await readJson(req);
+        const text = typeof body.text === 'string' ? body.text.slice(0, TALK.inputChars) : '';
+        if (text.trim().length === 0) throw new HttpError(400, 'Missing text');
+        const turns = Array.isArray(body.turns)
+          ? body.turns
+              .filter((t): t is { who: string; text: string } => t != null && typeof t === 'object' && typeof (t as { text?: unknown }).text === 'string')
+              .map((t) => ({ who: t.who === 'lamp' ? ('lamp' as const) : ('you' as const), text: t.text }))
+          : [];
+        guard('talk', ip);
+        const reply = await providers.agent.talk({
+          text,
+          summary: typeof body.summary === 'string' ? body.summary.slice(0, TALK.summaryChars) : '',
+          turns: boundTurns(turns),
+          weights: strings(body.weights, TALK.maxWeights),
+          closing: body.closing === true,
+        });
+        send(res, 200, { ...reply, agent: providers.agent.name }, origin);
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/speak') {
+        // The lamp's dynamic voice: raw PCM16 24 kHz mono, streamed as it is made (first sound in ~1 s instead of
+        // waiting for the whole sentence). No voice configured → 503 and the app shows the caption alone.
+        const body = await readJson(req);
+        const text = typeof body.text === 'string' ? body.text.replace(/\s+/gu, ' ').trim().slice(0, 400) : '';
+        if (text.length === 0) throw new HttpError(400, 'Missing text');
+        const tts = providers.tts ?? null;
+        if (tts == null) throw new HttpError(503, 'No voice configured');
+        const estimate = Math.max(2, text.length / 12);
+        if (!quota.takeSeconds(ip, estimate)) throw new HttpError(429, 'Daily voice limit reached for this demo');
+        const abort = new AbortController();
+        req.on('close', () => abort.abort());
+        let bytes = 0;
+        try {
+          for await (const chunk of tts.stream(text, { style: env.TTS_STYLE || DEFAULT_TTS_STYLE, signal: abort.signal })) {
+            if (!res.headersSent) {
+              res.writeHead(200, {
+                ...SECURITY_HEADERS,
+                'content-type': `audio/L16;rate=${TTS_SAMPLE_RATE};channels=1`,
+                'cache-control': 'no-store',
+                ...(origin != null ? { 'access-control-allow-origin': origin, vary: 'origin' } : {}),
+              });
+            }
+            bytes += chunk.length;
+            res.write(chunk);
+          }
+        } catch (error) {
+          quota.settleSeconds(ip, estimate, bytes / TTS_BYTES_PER_SECOND);
+          if (!res.headersSent) throw new HttpError(502, 'Voice unavailable');
+          res.end();
+          return;
+        }
+        quota.settleSeconds(ip, estimate, bytes / TTS_BYTES_PER_SECOND);
+        if (!res.headersSent) throw new HttpError(502, 'Voice unavailable');
+        res.end();
         return;
       }
       if (req.method === 'POST' && url.pathname === '/api/transcribe') {

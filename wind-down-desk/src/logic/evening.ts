@@ -12,8 +12,9 @@
  */
 import { normalize } from './text.ts';
 
-export type RitualKind = 'unload' | 'breathe' | 'release';
-export const RITUAL_KINDS: readonly RitualKind[] = ['unload', 'breathe', 'release'];
+/** 24 Oct: 'talk' = "Talk it through" (a free voice talk with the lamp; never called therapy). */
+export type RitualKind = 'unload' | 'breathe' | 'release' | 'talk';
+export const RITUAL_KINDS: readonly RitualKind[] = ['unload', 'breathe', 'release', 'talk'];
 export type EveningMode = 'arrive' | 'choose' | RitualKind | 'night' | 'morning';
 
 export type Feeling = 'tense' | 'heavy' | 'many' | 'neutral';
@@ -142,7 +143,7 @@ export type RitualCommand =
  * Whole-sentence commands only (a brain dump that mentions breathing never switches ritual).
  * `where`: 'choose' (a proposal may be pending), 'breathe', 'release', or 'unload'.
  */
-export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | 'release' | 'unload' | 'other'): RitualCommand | null {
+export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | 'release' | 'unload' | 'talk' | 'other'): RitualCommand | null {
   let n = normalize(text).replace(/\b(please|lamp)\b/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (n !== 'not now') n = n.replace(/\s+(now|then)$/u, '').replace(/^(okay|ok|so|well|then) (?=\w)/u, '').trim();
   if (n.length === 0) return null;
@@ -156,6 +157,12 @@ export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | '
   }
   if (/^((lets |can we |i want to |id like to )?(unload|empty my head|brain dump|do (a |the )?brain dump|sort my thoughts|the stones))$/u.test(n)) {
     return where === 'unload' ? null : { type: 'pick', ritual: 'unload' };
+  }
+  if (/^((lets |can we |i want to |id like to |i need to )?(talk( it through| for a (bit|while)| a little)?|talk to you|just talk|talk things through))$/u.test(n)) {
+    return where === 'talk' ? null : { type: 'pick', ritual: 'talk' };
+  }
+  if (where === 'talk' && /^(thats all|thats all for tonight|thats it|im done|i am done|thank you|thanks|thank you lamp|enough for tonight|lets stop|stop|i want to stop)$/u.test(n)) {
+    return { type: 'finish' };
   }
   if (where === 'release' && /^(let (it|that|this) (go|sink)|let go|let it|drop it|release it|sink it|go|its gone|i let (it )?go|gone)$/u.test(n)) {
     return { type: 'sink' };
@@ -178,5 +185,6 @@ export const RITUAL_MENU: ReadonlyArray<{ id: RitualKind | 'sleep'; name: string
   { id: 'unload', name: 'Unload', sub: 'Empty your head, sort by hand' },
   { id: 'breathe', name: 'Breathe', sub: 'One slow minute, 4 in, 6 out' },
   { id: 'release', name: 'Release', sub: 'Let one heavy thing sink' },
+  { id: 'talk', name: 'Talk it through', sub: 'Say it out loud, the lamp listens' },
   { id: 'sleep', name: 'Good night', sub: 'End the evening' },
 ];

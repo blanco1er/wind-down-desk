@@ -35,6 +35,8 @@ export const EVENTS: Record<string, readonly string[]> = {
   forget: [],
   /** 24 Oct (axe 4): a suggestion bubble touched (worry / done), never its text. */
   bubble: ['kind'],
+  /** 24 Oct: Talk it through — start, turn, end, voice-unavailable (never words, never a crisis). */
+  talk: ['event'],
   'xr-enter': ['mode'],
   'xr-exit': ['secs'],
   placed: ['source', 'mode'],

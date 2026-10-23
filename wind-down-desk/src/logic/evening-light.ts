@@ -11,6 +11,8 @@ export const EVENING_STAGE: Record<EveningMode, number> = {
   choose: 0.15,
   unload: 0.32,
   release: 0.52,
+  // Talk it through: a quiet place, lights low (between Release and Breathe).
+  talk: 0.58,
   breathe: 0.66,
   night: 0.95,
   morning: 0,

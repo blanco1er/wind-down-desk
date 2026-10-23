@@ -115,7 +115,7 @@ test('audio: a clip over the size cap is refused before any provider call (413)'
 
 test('DailyQuota: per visitor, global, token ceiling, reset at 00:00 UTC', () => {
   let now = Date.UTC(2026, 10, 20, 23, 59);
-  const limits = { ...limitsFromEnv({}), perIp: { stt: 2, agent: 2, visit: 9 }, total: { stt: 3, agent: 9, visit: 9 }, llmTokens: 1000 };
+  const limits = { ...limitsFromEnv({}), perIp: { stt: 2, agent: 2, visit: 9, talk: 9 }, total: { stt: 3, agent: 9, visit: 9, talk: 9 }, llmTokens: 1000 };
   const q = new DailyQuota(limits, () => now);
   assert.deepEqual([q.take('stt', 'a'), q.take('stt', 'a'), q.take('stt', 'a')], [true, true, false], 'per visitor');
   assert.deepEqual([q.take('stt', 'b'), q.take('stt', 'c')], [true, false], 'global');

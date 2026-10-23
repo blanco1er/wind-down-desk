@@ -9,6 +9,9 @@ import { cleanWeightTitle } from './weight.ts';
 import { SimulatedAgent } from './simulated.ts';
 import type { Agent, PlanInput, TomorrowPlan, WorryDraft } from './types.ts';
 
+import { crisisSignal, CRISIS_REPLY, TALK_SYSTEM } from './safety.ts';
+import { parseTalkReply, talkUser, type TalkInput, type TalkReply } from './talk.ts';
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -97,6 +100,27 @@ export class LlmAgent implements Agent {
     } catch (error) {
       this.noteFallback(error);
       return this.fallback.summarize(text);
+    }
+  }
+
+  /** "Talk it through": crisis first (fixed answer, no call), then the model with a bounded history. */
+  async talk(input: TalkInput): Promise<TalkReply> {
+    if (crisisSignal(input.text)) return { reply: CRISIS_REPLY, weights: [], summary: input.summary, crisis: true };
+    try {
+      this.stats.llmCalls++;
+      const raw = await this.provider.complete(
+        [
+          { role: 'system', content: TALK_SYSTEM },
+          { role: 'user', content: talkUser(input) },
+        ],
+        { json: true, maxTokens: 450 },
+      );
+      const reply = parseTalkReply(raw, input);
+      if (reply != null) return reply;
+      throw new Error('unparseable talk reply');
+    } catch (error) {
+      this.noteFallback(error);
+      return this.fallback.talk(input);
     }
   }
 

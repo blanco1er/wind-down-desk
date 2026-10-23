@@ -27,3 +27,13 @@ test('a touched bubble is read exactly like the same sentence spoken', () => {
   assert.equal(parseIntent(DONE_BUBBLE, ctx, 'dump').type, 'done');
   assert.equal(parseIntent(WORRY_BUBBLES[1], ctx, 'dump').type, 'none', 'a worry is content for the brain dump');
 });
+
+test('talking it through: after 8 s of silence, three ways to go on (one of them a breathing minute)', async () => {
+  const { TALK_BUBBLES } = await import('../src/logic/bubbles.ts');
+  const { parseRitualCommand } = await import('../src/logic/evening.ts');
+  assert.equal(bubbleLines({ ...base, mode: 'talk', idle: 7 }), null);
+  assert.equal(bubbleLines({ ...base, mode: 'talk', idle: 8 })?.length, 3);
+  assert.deepEqual(parseRitualCommand(TALK_BUBBLES[4], 'talk'), { type: 'pick', ritual: 'breathe' });
+  assert.deepEqual(parseRitualCommand('talk it through', 'choose'), { type: 'pick', ritual: 'talk' });
+  assert.deepEqual(parseRitualCommand("that's all", 'talk'), { type: 'finish' });
+});
