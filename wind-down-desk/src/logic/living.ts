@@ -117,10 +117,31 @@ export interface PlaceLife {
   fire?: FireSpec;
   /** A rare shooting star. */
   shootingStars?: boolean;
+  /**
+   * 25 Oct (axe 5): the photo below the horizon is open, flat ground (sand, water, grass, snow), so it is projected on
+   * the ground plane for motion parallax and stereo depth. Off for interiors and ledges: a sofa or a wall projected on
+   * the floor would bend when the head moves.
+   */
+  flatGround?: boolean;
 }
 
 /** Nominal eye height above the place's ground (seated): angles of the 3D effects match the photo at this height. */
 export const EYE_HEIGHT = 1.2;
+
+type V3 = readonly [number, number, number];
+/**
+ * Mirror of the backdrop's GLSL groundDir() (environment.ts), for the tests: the photo direction to sample when the
+ * eye at `cam` looks along `d`, the photo being taken at `centre`, `h` above a flat ground (h = 0: no projection).
+ */
+export function groundDirection(d: V3, cam: V3, centre: V3, h: number): [number, number, number] {
+  if (h <= 0 || d[1] > -0.0005) return [d[0], d[1], d[2]];
+  const groundY = centre[1] - h;
+  const t = Math.min((groundY - cam[1]) / d[1], 400);
+  if (t <= 0) return [d[0], d[1], d[2]];
+  const p = [cam[0] + d[0] * t - centre[0], cam[1] + d[1] * t - centre[1], cam[2] + d[2] * t - centre[2]];
+  const n = Math.hypot(p[0], p[1], p[2]);
+  return [p[0] / n, p[1] / n, p[2] / n];
+}
 
 export const LIFE: Partial<Record<PlaceId, PlaceLife>> = {
   // Measured by eye on night-chalet-2k.jpg with a degree grid (19 Oct 2026).
@@ -159,6 +180,7 @@ export const LIFE: Partial<Record<PlaceId, PlaceLife>> = {
   },
   // Measured on night-lake-moon-2k.jpg: the moon (−10°, +48°) and its path on the water, the mist on the far shore.
   'moon-lake': {
+    flatGround: true,
     ambient: {
       water: { rect: { yaw: [-125, 140], pitch: [-46, -0.6] }, pathYaw: -10, pathHalfWidth: 3.2 },
       mist: { rect: { yaw: [-125, 110], pitch: [-3, 6] }, level: 0.8, density: 0.55 },
@@ -166,6 +188,7 @@ export const LIFE: Partial<Record<PlaceId, PlaceLife>> = {
   },
   // Measured on night-aurora-2k.jpg: outside, on the snow; the aurora curtain above the far mountains.
   'northern-lights': {
+    flatGround: true,
     snow: {
       // Out in the open: the whole view (two halves so the seam behind you is covered), nothing closer than 1.7 m
       // (never through the desk).
@@ -201,6 +224,7 @@ export const LIFE: Partial<Record<PlaceId, PlaceLife>> = {
   },
   // night-fireflies-2k.jpg: a meadow out to the tree line; the photo's own painted fireflies stay, live ones fly.
   'firefly-meadow': {
+    flatGround: true,
     fireflies: { count: 140, near: 9, inner: 2.2, outer: 24 },
   },
   // Measured on night-rooftop-2k.jpg: the string lights under the pergola (behind you, left) and the lanterns.
@@ -217,6 +241,7 @@ export const LIFE: Partial<Record<PlaceId, PlaceLife>> = {
     },
   },
   'moon-beach': {
+    flatGround: true,
     waves: {
       // Measured by eye on night-beach-2k.jpg with a degree grid (19 Oct 2026): the landward edge of the broken foam
       // (the mean water line, where each wave's bore lands). The photo's wet limit (thin wash line) runs ≈ 10° lower
@@ -253,6 +278,7 @@ export const LIFE: Partial<Record<PlaceId, PlaceLife>> = {
     },
   },
   'ember-fire': {
+    flatGround: true,
     fire: {
       yaw: -35,
       // Clearing v2 (19 Oct): a flat meadow out to the tree line at the horizon. Owner: on the place's ground, 4–6 m
@@ -272,6 +298,7 @@ export const LIFE: Partial<Record<PlaceId, PlaceLife>> = {
   },
   // night-desert-2k.jpg: the Milky Way (yaw 45…110°); a far camp light at (47°, −9°) wavers like a lantern.
   'desert-stars': {
+    flatGround: true,
     shootingStars: true,
     ambient: { lights: [{ rect: { yaw: [44, 50], pitch: [-11, -7] }, kind: 'lantern', halo: 3 }] },
   },

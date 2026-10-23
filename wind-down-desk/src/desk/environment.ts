@@ -20,6 +20,7 @@
 import {
   BackSide,
   LinearFilter,
+  RepeatWrapping,
   Mesh,
   NoColorSpace,
   NormalBlending,
@@ -115,6 +116,9 @@ export class PlaceBackdrop {
         uState: { value: new Vector4(0, 0, 1, 0) },
         // yaw of A, yaw of B (photo + desk); z, w: A / B use the equal-area layout
         uYaw: { value: new Vector4(0, 0, 0, 0) },
+        // 25 Oct (axe 5, cheap depth): xyz = where the photo was "taken" (the seated head, EYE_HEIGHT above the
+        // place's ground), w = that height; w = 0 → the photo stays at infinity.
+        uGround: { value: new Vector4(0, 0, 0, 0) },
       },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
@@ -137,6 +141,7 @@ export class PlaceBackdrop {
         uniform vec4 uGradeB1;
         uniform vec4 uState;
         uniform vec4 uYaw;
+        uniform vec4 uGround;
         varying vec3 vDir;
         const float PI = 3.14159265;
         float hash12(vec2 p) {
@@ -158,7 +163,21 @@ export class PlaceBackdrop {
         vec3 eveningGrade(vec3 col, vec3 d, float skyMask) {
           return eveningGradeK(col, d, skyMask, 1.0);
         }
+        /**
+         * Cheap depth (axe 5): below the horizon the photo is the ground, so it is projected on a ground plane
+         * uGround.w below where it was taken; the sky stays at infinity. Moving the head (or each eye, in stereo)
+         * then shifts the near ground like a real one: motion parallax and stereo depth, for a few operations per
+         * pixel and no extra texture. Continuous at the horizon (a far hit point gives the same direction).
+         */
+        vec3 groundDir(vec3 d) {
+          if (uGround.w <= 0.0 || d.y > -0.0005) return d;
+          float groundY = uGround.y - uGround.w;
+          float t = min((groundY - cameraPosition.y) / d.y, 400.0);
+          if (t <= 0.0) return d;
+          return normalize(cameraPosition + d * t - uGround.xyz);
+        }
         vec3 place(sampler2D tex, vec3 d, float yaw, float equalArea, vec4 g0, vec4 g1, float strength, float groundShade) {
+          d = groundDir(d);
           float u = atan(d.x, -d.z) / (2.0 * PI) + 0.5 + yaw / (2.0 * PI);
           // Equal-area KTX2: v = 0.5 − 0.5·sin(latitude), row 0 at the zenith (not flipped).
           float v = equalArea > 0.5 ? 0.5 - 0.5 * clamp(d.y, -1.0, 1.0) : asin(clamp(d.y, -1.0, 1.0)) / PI + 0.5;
@@ -484,6 +503,9 @@ export class PlaceBackdrop {
       texture.generateMipmaps = false;
       texture.minFilter = LinearFilter;
       texture.magFilter = LinearFilter;
+      // Axe 5 (seams): the panorama wraps around (shader fract(u)); repeat lets the last column blend into the first
+      // instead of clamping (a hard 1-texel line behind you otherwise).
+      texture.wrapS = RepeatWrapping;
       const level = (texture as Texture & { mipmaps?: Array<{ data: ArrayBufferView }> }).mipmaps?.[0];
       const format = String((texture as Texture & { format: unknown }).format);
       this.lastFormat = format;
@@ -502,6 +524,7 @@ export class PlaceBackdrop {
           texture.generateMipmaps = false;
           texture.minFilter = LinearFilter;
           texture.magFilter = LinearFilter;
+          texture.wrapS = RepeatWrapping;
           const img = texture.image as { width: number; height: number };
           resolve({ texture, equalArea: false, gpuBytes: img.width * img.height * 4 });
         },

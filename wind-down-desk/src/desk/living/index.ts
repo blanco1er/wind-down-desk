@@ -45,6 +45,13 @@ import { createShootingStar } from './sky.ts';
 import { createSnow } from './snow.ts';
 import { createSeaPatch, createWaveSheet } from './waves.ts';
 
+/**
+ * 25 Oct (axe 5): the panorama's ground is projected on the real ground plane (backdrop `groundDir`), so moving the
+ * head gives motion parallax and each eye a slightly different ground: depth for ~10 ALU per pixel, no extra draw.
+ * Off → the photo stays at infinity as before.
+ */
+export const GROUND_PARALLAX = true;
+
 const { crackles: CRACKLES, surfs: SURFS, embers: EMBERS, sea: SEA, wind: WIND } = LIVING_SOUNDS;
 
 interface Built {
@@ -70,6 +77,8 @@ export class LivingPlaces {
   private fade = 0;
   private target = 0;
   private readonly shared: Uniforms;
+  private anchored = false;
+  private groundParallax = GROUND_PARALLAX;
   private readonly anchorPos = new Vector3();
   private anchorYaw = 0;
   private breath: BreathLike | null = null;
@@ -127,8 +136,27 @@ export class LivingPlaces {
   anchor(x: number, z: number, yaw: number): void {
     this.anchorPos.set(x, 0, z);
     this.anchorYaw = yaw;
+    this.anchored = true;
+    this.updateGround();
     if (this.current != null) this.shared.uLivingYaw.value = yaw + PLACES[this.current.id].yaw;
     for (const b of this.built.values()) this.place(b);
+  }
+
+  /**
+   * 25 Oct (axe 5): the backdrop's ground projection uses the same ground as these 3D effects — the photo is "taken"
+   * from the seated head (the anchor), EYE_HEIGHT above uGroundY — so the photo, the wave sheet and the fire's ground
+   * stay one picture when the head moves.
+   */
+  private updateGround(): void {
+    const g = this.shared.uGround?.value as Vector4 | undefined;
+    if (g == null) return;
+    g.set(this.anchorPos.x, this.groundY() + EYE_HEIGHT, this.anchorPos.z, this.groundParallax && this.anchored && this.current?.life.flatGround === true ? EYE_HEIGHT : 0);
+  }
+
+  /** Play-test / A-B switch of the ground projection (the comparison shots and the perf measure). */
+  setGroundParallax(on: boolean): void {
+    this.groundParallax = on;
+    this.updateGround();
   }
 
   private place(b: Built): void {
@@ -175,6 +203,7 @@ export class LivingPlaces {
     if (life == null) {
       this.target = 0;
       this.shared.uWhich.value = 0;
+      this.updateGround();
       return;
     }
     this.current = this.build(id, life);
@@ -321,6 +350,7 @@ export class LivingPlaces {
       this.shared.uGroundY.value = y;
       for (const b of this.built.values()) this.place(b);
     }
+    this.updateGround();
   }
 
   /** Draw calls of the living effects right now (perf report). */

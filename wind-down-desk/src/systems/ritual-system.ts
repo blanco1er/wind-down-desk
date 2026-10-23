@@ -37,6 +37,7 @@ import { accessLine, DWELL_SELECT, parseAccessCommand, type AccessPrefs } from '
 import { answerOf, isForgetCommand } from '../logic/recall.ts';
 import { bubbleLines, DONE_BUBBLE } from '../logic/bubbles.ts';
 import { TtsPlayer } from '../voice/tts-player.ts';
+import { benchBackdrop } from '../desk/backdrop-bench.ts';
 import { spokenSentences, TALK_OPENING, talkClock, WIND_DOWN_LINE, type TalkReply, type TalkTurn } from '../shared/agent/talk.ts';
 import { cleanSummary, crisisInModelText, crisisSignal, CRISIS_REPLY, HELP_ROWS } from '../shared/agent/safety.ts';
 
@@ -3526,6 +3527,10 @@ export class RitualSystem extends createSystem({
       rain: () => ({ drawCalls: this.visuals.rain.drawCalls }),
       /** Living places: what is alive now (place, fade, draw calls, sounds playing, waves, fire). */
       living: () => this.visuals.living.debug(),
+      /** Axe 5: the panorama's ground projected on the real ground (motion parallax, stereo) — on/off for A/B. */
+      groundParallax: (on: boolean) => this.visuals.living.setGroundParallax(on),
+      /** Axe 5: GPU cost of the ground projection (backdrop alone, one Quest 3 eye, on vs off). */
+      backdropBench: (n?: number) => benchBackdrop(this.renderer, this.visuals.backdrop.mesh, this.player.head.getWorldPosition(new Vector3()), n),
       /** GPU memory held by place panoramas (bytes) and the compressed format the GPU received. */
       placeMemory: () => ({ bytes: this.visuals.backdrop.gpuBytes(), format: this.visuals.backdrop.lastFormat }),
       /** Play-test check of "Muted": master volume, and the loudness actually leaving the listener (RMS). */

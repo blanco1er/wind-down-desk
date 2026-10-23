@@ -7,6 +7,8 @@ import {
   CrackleScheduler,
   fireLight,
   firePosition,
+  groundDirection,
+  EYE_HEIGHT as EYE_HEIGHT_T,
   FLICKER,
   inRects,
   invSmoothstep,
@@ -164,4 +166,29 @@ test('living sounds and ground textures are shipped and credited', () => {
   for (const f of files) assert.ok(existsSync(new URL(`../public/${f}`, import.meta.url)), f);
   const credits = readFileSync(new URL('../CREDITS.md', import.meta.url), 'utf8');
   for (const who of ['Glaneur de sons', 'PagDev', 'AntumDeluge', 'Dsw4', 'RandomMind', 'Escoitar', 'Poly Haven']) assert.ok(credits.includes(who), who);
+});
+
+test('cheap depth (axe 5): the ground is projected only on open flat places, and is exact when the head is at rest', () => {
+  for (const id of ['fireside-cabin', 'rain-veranda', 'rooftop-city'] as const) assert.notEqual(LIFE[id]?.flatGround, true, `${id}: furniture or a ledge would bend`);
+  for (const id of ['moon-beach', 'moon-lake', 'ember-fire'] as const) assert.equal(LIFE[id]?.flatGround, true, id);
+  const src = readFileSync(new URL('../src/desk/environment.ts', import.meta.url), 'utf8');
+  assert.match(src, /vec3 place\([^)]*\) \{\s*d = groundDir\(d\);/u, 'place() samples through groundDir()');
+  const centre = [0.3, 1.2, -0.4] as const;
+  const norm = (v: number[]): number[] => { const n = Math.hypot(v[0], v[1], v[2]); return v.map((x) => x / n); };
+  const close = (a: number[], b: number[], eps: number): boolean => a.every((x, i) => Math.abs(x - b[i]) < eps);
+  // Head at the centre: the photo is unchanged in every direction (nothing moves until you move).
+  for (const d of [[0, -1, 0], [0.5, -0.5, -0.7], [0.9, -0.05, 0.4], [0, 0.6, -0.8]]) {
+    const n = norm(d) as unknown as [number, number, number];
+    assert.ok(close(groundDirection(n, centre, centre, EYE_HEIGHT_T), n, 1e-9));
+  }
+  // Head moved 20 cm to the right: the ground point straight below now shows the photo slightly to the right.
+  const moved = [0.5, 1.2, -0.4] as const;
+  const g = groundDirection([0, -1, 0], moved, centre, EYE_HEIGHT_T);
+  assert.ok(g[0] > 0.15 && g[1] < -0.9, `parallax ${g}`);
+  // Sky untouched, and continuous at the horizon (a ray just under it hits the ground far away: same direction).
+  assert.deepEqual(groundDirection([0, 0.2, -0.98], moved, centre, EYE_HEIGHT_T), [0, 0.2, -0.98]);
+  const h = norm([0, -0.0006, -1]) as unknown as [number, number, number];
+  assert.ok(close(groundDirection(h, moved, centre, EYE_HEIGHT_T), h, 0.01));
+  // Off (h = 0): the photo stays at infinity.
+  assert.deepEqual(groundDirection([0, -1, 0], moved, centre, 0), [0, -1, 0]);
 });
