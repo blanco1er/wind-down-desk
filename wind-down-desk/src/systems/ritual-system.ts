@@ -34,9 +34,10 @@ import {
 import { createDeskLayout, binById, BIN_IDS, BIN_STONE_SCALE, classifyDrop, deskToWorld, homePosition, nearestBinIndex, slotPosition, worldToDesk, type BinId, type DeskFrame, type DeskLayout, type Vec3 } from '../logic/desk-layout.ts';
 import { easeToward, GAZE, gazeAngle, GazeFocus, gazePick, type GazeTarget } from '../logic/gaze.ts';
 import { accessLine, DWELL_SELECT, parseAccessCommand, type AccessPrefs } from '../logic/access.ts';
+import { answerOf, isForgetCommand } from '../logic/recall.ts';
 import { EXAMPLE_STONE, ghostFrame, ghostTarget, onboardingStep, SPOKEN_EXAMPLE } from '../logic/onboarding.ts';
 import { GhostHand, HandLook } from '../desk/hands.ts';
-import { starPosition } from '../logic/memory.ts';
+import { followUpQuestion, starPosition, type Recall } from '../logic/memory.ts';
 import { fallbackFrame, frameOnTable, type HeadPose, type PlaneCandidate } from '../logic/placement.ts';
 import { chooseSurface, meshTop, type MeshBox, type SurfaceChoice } from '../logic/surfaces.ts';
 import { bearingCaption, bearingOf, decideAfterRestore, type Bearing, type PlaceSource, type RestoreDecision } from '../logic/desk-anchor.ts';
@@ -196,6 +197,16 @@ export class RitualSystem extends createSystem({
   private gazedBin = -1;
   /** Look and pinch: the stone chosen by gaze + pinch, waiting for a bowl. */
   private chosenId: string | null = null;
+  /**
+   * 24 Oct — agent memory: a yes / no question of the lamp's own (a follow-up, "forget everything?"). It takes the
+   * reply chips (touch, gaze dwell) and short spoken answers, before anything else.
+   */
+  private ask: { labels: [string, string]; actions: [() => void, () => void]; key: string } | null = null;
+  /** Yesterday's open "Tomorrow" stones, checked one by one at the start of a returning evening. */
+  private followUps: Array<{ text: string; id: string | null }> = [];
+  private followUpIndex = 0;
+  private followUpsDone = 0;
+  private askStone: string | null = null;
   /** 23 Oct — accessibility (logic/access.ts) and gaze-only selection by dwell. */
   private access: AccessPrefs = { gazeSelect: false, contrast: false, largeText: false };
   private dwellId: string | null = null;
@@ -689,7 +700,105 @@ export class RitualSystem extends createSystem({
       this.startRitual('unload', undefined, 'hand');
       return;
     }
-    this.propose(null, `${where.length > 0 ? `${where} ` : ''}${services.memory.welcomeLine()}`);
+    // 24 Oct — agent memory: the lamp remembers (on this device) and opens with one true sentence; yesterday's open
+    // "Tomorrow" stones come back to be checked ("Did you call the dentist?" → done → they dissolve into light).
+    const recall = services.memory.recall();
+    if (recall.followUps.length > 0) {
+      this.startFollowUps(recall);
+      return;
+    }
+    this.propose(null, `${where.length > 0 ? `${where} ` : ''}${recall.sentence ?? services.memory.welcomeLine()}`);
+  }
+
+  private startFollowUps(recall: Recall): void {
+    this.followUps = recall.followUps.map((text) => ({ text, id: this.spawnStone({ title: text, detail: text, suggestion: 'tomorrow' }, 0.2, 'carried')?.id ?? null }));
+    this.followUpIndex = 0;
+    this.followUpsDone = 0;
+    track('follow-up', { answer: 'asked' }, 'follow-up:asked');
+    // The question waits for the arrival reveal: never asked before it can be read and answered.
+    const ask = (tries: number) => {
+      if (this.visuals.uiShown || tries > 40) this.askFollowUp(recall.sentence);
+      else window.setTimeout(() => ask(tries + 1), 150);
+    };
+    window.setTimeout(() => ask(0), 900);
+  }
+
+  private askFollowUp(intro: string | null = null): void {
+    const item = this.followUps[this.followUpIndex];
+    if (item == null || this.mode !== 'choose') {
+      this.finishFollowUps();
+      return;
+    }
+    this.askStone = item.id;
+    this.ask = {
+      labels: ['Yes, done', 'Not yet'],
+      actions: [() => this.answerFollowUp(true), () => this.answerFollowUp(false)],
+      key: `f${this.followUpIndex}`,
+    };
+    const question = followUpQuestion(item.text, this.followUpIndex === 0);
+    this.say(intro != null && this.followUpIndex === 0 ? `${intro} ${question}` : question, services.style.quiet ? 'Touch "Yes, done" or "Not yet".' : 'Say "done" or "not yet".');
+  }
+
+  private answerFollowUp(done: boolean): void {
+    const item = this.followUps[this.followUpIndex];
+    this.ask = null;
+    this.askStone = null;
+    this.lastActivity = this.elapsed;
+    if (item == null) return;
+    track('follow-up', { answer: done ? 'done' : 'not-yet' });
+    const stone = item.id != null ? this.stones.get(item.id) : undefined;
+    if (done) {
+      services.memory.markDone(item.text);
+      this.followUpsDone++;
+      if (stone != null && this.session.get(stone.id) != null) {
+        // Done: the stone dissolves into light where it lies (not a let go: no star, no bowl).
+        this.session.discard(stone.id);
+        stone.dissolving = 0;
+        stone.emitted = 0;
+        this.cue('release', { x: 0, y: 0.05, z: 0 });
+        // The others close the gap only once it has gone (never sliding over the light).
+        window.setTimeout(() => this.layoutUnsorted(0.6), (RELEASE_HOLD + RELEASE_DURATION) * 1000);
+      }
+      this.flash('Done. One less thing to carry.', 1.4, '', false);
+    } else {
+      this.flash('It stays on your desk.', 1.4, '', false);
+    }
+    this.followUpIndex++;
+    window.setTimeout(() => this.askFollowUp(), 1500);
+  }
+
+  private finishFollowUps(): void {
+    this.ask = null;
+    this.askStone = null;
+    const pending = this.followUps.length;
+    this.followUps = [];
+    if (pending === 0 || this.mode !== 'choose' || this.proposal != null) return;
+    const done = this.followUpsDone;
+    const sub = done > 0 ? `${done === 1 ? 'One thing' : `${done} things`} done since last time.` : services.memory.welcomeLine();
+    this.propose(null, sub);
+  }
+
+  /** "Forget everything": one confirmation, then every evening kept on this device is erased (stars too). */
+  private confirmForget(): void {
+    const previous = this.ask;
+    this.ask = {
+      labels: ['Forget', 'Keep'],
+      actions: [
+        () => {
+          this.ask = null;
+          services.memory.forget();
+          this.visuals.lights.clearStars();
+          track('forget', {});
+          this.flash('Forgotten. Nothing from before is kept here.', 4);
+        },
+        () => {
+          this.ask = previous;
+          this.flash('Kept.', 1.8, '', false);
+        },
+      ],
+      key: 'forget',
+    };
+    this.flash('Forget every evening kept on this device?', 30, 'Stones, stars and plans. This cannot be undone.');
   }
 
   /** "From last week's Later": items waiting a week come back when Unload starts. */
@@ -989,6 +1098,18 @@ export class RitualSystem extends createSystem({
     const accessCommand = parseAccessCommand(normalize(clean));
     if (accessCommand != null) {
       this.setAccess(accessCommand, 'voice');
+      return;
+    }
+    // 24 Oct — the lamp's own question first ("Did you call the dentist?" → "done" / "not yet").
+    if (this.ask != null) {
+      const answer = answerOf(normalize(clean));
+      if (answer != null) {
+        this.ask.actions[answer === 'yes' ? 0 : 1]();
+        return;
+      }
+    }
+    if (isForgetCommand(normalize(clean))) {
+      this.confirmForget();
       return;
     }
     const voiceCommand = parseVoiceToggle(normalize(clean));
@@ -1394,6 +1515,12 @@ export class RitualSystem extends createSystem({
   /** Starts a ritual (ending any other gently). `carry`: words heard by the agent, used by the ritual. */
   private startRitual(kind: RitualKind, carry?: string, via: 'hand' | 'voice' = 'hand', intro?: string): void {
     track('ritual-start', { kind, via }, `ritual-start:${kind}`);
+    // A ritual chosen during the follow-ups: the remaining stones simply stay on the desk.
+    if (this.followUps.length > 0) {
+      this.followUps = [];
+      this.ask = null;
+      this.askStone = null;
+    }
     if (this.mode === kind) {
       this.visuals.openRituals(false);
       return;
@@ -2052,8 +2179,13 @@ export class RitualSystem extends createSystem({
       {
         title: 'This morning',
         subtitle: plan.plan.length > 0 ? 'What you kept last night' : 'What you saved for today',
-        rows: plan.plan.map((s) => ({ time: s.when, title: s.title, detail: `${s.step}, ${s.minutes} min` })),
-        footer: 'One thing at a time. See you tonight.',
+        // 24 Oct — agent memory: without a kept plan, the card still lists what you saved; and it cites what you
+        // said was done last night.
+        rows:
+          plan.plan.length > 0
+            ? plan.plan.map((s) => ({ time: s.when, title: s.title, detail: `${s.step}, ${s.minutes} min` }))
+            : plan.tomorrow.slice(0, 4).map((t) => ({ time: '', title: t, detail: 'Saved for today' })),
+        footer: plan.done.length > 0 ? `Done last night: ${plan.done.slice(0, 2).join(', ')}${plan.done.length > 2 ? '…' : ''}.` : 'One thing at a time. See you tonight.',
         accent: DS.text.primary,
       },
       true,
@@ -2134,6 +2266,7 @@ export class RitualSystem extends createSystem({
       p != null && this.mode === 'choose' ? `p${p.ritual}:${services.memory.doneTonight().length}` : '',
       placed && this.mode === 'breathe' ? 'b' : '',
       this.visuals.placesOpen || this.visuals.ritualMenuOpen ? 'm' : '',
+      this.ask != null ? `a${this.ask.key}` : '',
     ].join('|');
     if (key === this.touchKey) return;
     this.touchKey = key;
@@ -2153,7 +2286,10 @@ export class RitualSystem extends createSystem({
       this.visuals.setWords(null);
     }
     // Replies.
-    if (p != null && this.mode === 'choose') {
+    if (this.ask != null) {
+      this.replyActions = this.ask.actions;
+      this.visuals.setReplies(this.ask.labels);
+    } else if (p != null && this.mode === 'choose') {
       // "One bus stop" (23 Oct): once a ritual is done tonight, the way out is always one touch away.
       const canEnd = services.memory.doneTonight().length > 0 && p.ritual !== 'sleep';
       this.replyActions = [() => this.onRitualCommand({ type: 'accept' }), canEnd ? () => this.goodnight() : () => this.onRitualCommand({ type: 'decline' })];
@@ -2505,7 +2641,7 @@ export class RitualSystem extends createSystem({
           this.sounds.play('pearl', mesh.position.x, mesh.position.y, mesh.position.z);
         }
       } else if (!hovered) this.hoveredIds.delete(stone.id);
-      const shown = this.ghostStone === stone.id ? 0.3 + 0.2 * Math.sin(this.elapsed * 3.2) : 0;
+      const shown = this.ghostStone === stone.id || this.askStone === stone.id ? 0.3 + 0.2 * Math.sin(this.elapsed * 3.2) : 0;
       // Gaze: a soft halo with its own slow ease (≥ 300 ms, logic/gaze.ts), halved in calm moments.
       stone.gazeK = easeToward(stone.gazeK, this.gazedId === stone.id ? this.gazeGain : 0, dt);
       const chosen = this.chosenId === stone.id ? 0.7 : 0;
@@ -2873,6 +3009,8 @@ export class RitualSystem extends createSystem({
     this.ghostBin = target.bin;
   }
 
+  private ghostTrailT = 0;
+
   private animateGhost(dt: number, holding: boolean): void {
     const stone = this.ghostStone != null ? this.stones.get(this.ghostStone) : undefined;
     if (stone == null || this.ghostBin == null || this.frame == null || holding) {
@@ -2895,6 +3033,12 @@ export class RitualSystem extends createSystem({
     this.ghostAt.copy(stone.mesh.position).lerp(this.ghostTo, f.travel);
     this.ghostAt.y += f.lift;
     this.ghost.pose(this.ghostAt, this.frame.yaw, f.pinch, f.alpha);
+    // A fine trail of light along the carried arc (24 Oct): one warm mote every ~40 ms, only while carrying.
+    this.ghostTrailT += dt;
+    if (f.pinch > 0.6 && f.travel > 0.02 && f.travel < 0.98 && this.ghostTrailT >= 0.04) {
+      this.ghostTrailT = 0;
+      this.visuals.lights.emit(this.ghostAt.x, this.ghostAt.y, this.ghostAt.z, 1, 0.004, 0.2);
+    }
     this.visuals.setSuggest(BIN_IDS.indexOf(this.ghostBin));
     this.ghostSuggest = true;
   }

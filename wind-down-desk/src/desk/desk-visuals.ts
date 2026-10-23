@@ -197,6 +197,10 @@ export class DeskVisuals {
   private revealTarget = 0;
   /** 0..1: the interface (caption, menus, replies, glass row) fades in only once the tray is revealed. */
   private uiK = 1;
+  /** The interface (captions, replies) is on screen: the arrival reveal is over. */
+  get uiShown(): boolean {
+    return this.uiK > 0.85;
+  }
   readonly relay: Mesh;
   private readonly relayUniforms: CardUniforms;
   private relayK = 0;

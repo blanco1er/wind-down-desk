@@ -48,6 +48,35 @@ export interface MemoryData {
   stars: Star[];
   laterPool: Array<{ text: string; since: string }>;
   morningSeen: string | null;
+  /** 23 Oct (agent memory): "Tomorrow" items the person said were done, and the evening they said it. */
+  done?: Array<{ text: string; date: string }>;
+}
+
+/** What the lamp remembers when you come back (all on this device, never on a server). */
+export interface Recall {
+  /** "Last night you let go of 3 things." (null on a first evening or after a blank one). */
+  sentence: string | null;
+  /** Open "Tomorrow" items from earlier evenings, newest first, at most 3: they come back to be checked. */
+  followUps: string[];
+}
+
+/** Base verbs that start most stone titles ("Call the dentist", "Reply to the landlord"). */
+const ACTION_VERBS = new Set(
+  'call reply email write send book pay buy fix finish prepare ask tell check clean cancel schedule order return pick sign submit read review plan meet talk text message visit renew update file print start go take get make do see find wash cook study practice apologize thank answer bring collect drop feed water mow repair sort tidy organize post move pack unpack wrap register apply contact phone ring follow confirm arrange move'.split(' '),
+);
+
+/** "Call the dentist" → "Did you call the dentist?"; anything else → "What about “…”?". */
+export function followUpQuestion(text: string, first = true): string {
+  const t = text.trim().replace(/[.!?]+$/u, '');
+  const word = t.split(/\s+/u)[0]?.toLowerCase() ?? '';
+  const q = ACTION_VERBS.has(word) ? `did you ${t.charAt(0).toLowerCase()}${t.slice(1)}?` : `what about “${t}”?`;
+  return first ? `${q.charAt(0).toUpperCase()}${q.slice(1)}` : `And ${q}`;
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function same(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 export const STORAGE_KEY = 'wind-down-desk.memory.v1';
@@ -79,7 +108,7 @@ export function isMorning(now: Date): boolean {
 }
 
 function emptyData(): MemoryData {
-  return { version: 1, nights: [], stars: [], laterPool: [], morningSeen: null };
+  return { version: 1, nights: [], stars: [], laterPool: [], morningSeen: null, done: [] };
 }
 
 export class RitualMemory {
@@ -109,6 +138,7 @@ export class RitualMemory {
         stars: Array.isArray(parsed.stars) ? parsed.stars : [],
         laterPool: Array.isArray(parsed.laterPool) ? parsed.laterPool : [],
         morningSeen: typeof parsed.morningSeen === 'string' ? parsed.morningSeen : null,
+        done: Array.isArray(parsed.done) ? parsed.done.filter((d) => d != null && typeof d.text === 'string' && typeof d.date === 'string') : [],
       };
     } catch {
       return emptyData();
@@ -260,18 +290,89 @@ export class RitualMemory {
     this.save();
   }
 
-  /** Last kept plan to show this morning, once. */
-  morningPlan(): { date: string; tomorrow: string[]; plan: PlanStep[] } | null {
+  /**
+   * "Tomorrow" items from earlier evenings (≤ 14 days) that are still open: not said done, not sorted again on a
+   * later evening (a later evening's record owns them then: Tomorrow again, Later, or let go). Newest first.
+   */
+  followUps(max = 3): string[] {
+    const today = eveningDate(this.now());
+    const todayIndex = dayIndex(today);
+    const done = this.data.done ?? [];
+    const out: string[] = [];
+    const nights = this.data.nights.filter((n) => n.date !== today && todayIndex - dayIndex(n.date) <= 14);
+    for (let i = nights.length - 1; i >= 0 && out.length < max; i--) {
+      const night = nights[i];
+      const later = nights.slice(i + 1);
+      for (const text of night.tomorrow) {
+        if (out.length >= max) break;
+        if (out.some((t) => same(t, text))) continue;
+        if (done.some((d) => same(d.text, text))) continue;
+        if (later.some((n) => [...n.tomorrow, ...n.later, ...n.letGo, ...(n.sunk ?? [])].some((t) => same(t, text)))) continue;
+        out.push(text);
+      }
+    }
+    return out;
+  }
+
+  /** The person said a "Tomorrow" item is done (it dissolves into light on the desk). */
+  markDone(text: string): void {
+    // Saying something is done counts as an evening at the desk (the morning card can then cite it).
+    const date = this.tonight().date;
+    this.data.done = [...(this.data.done ?? []).filter((d) => !same(d.text, text)), { text: text.trim(), date }].slice(-400);
+    this.save();
+  }
+
+  /** Items said done on a given evening (the morning card cites them). */
+  doneOn(date: string): string[] {
+    return (this.data.done ?? []).filter((d) => d.date === date).map((d) => d.text);
+  }
+
+  /**
+   * The opening recall of a returning evening: one short, true sentence about the last evening, and the open
+   * "Tomorrow" items to check ("Did you call the dentist?"). Nothing invented: only what was recorded here.
+   */
+  recall(): Recall {
+    const today = eveningDate(this.now());
+    const previous = this.data.nights.filter((n) => n.date !== today);
+    const last = previous.at(-1);
+    const followUps = this.followUps();
+    if (last == null) return { sentence: null, followUps };
+    const days = dayIndex(today) - dayIndex(last.date);
+    const [y, m, d] = last.date.split('-').map(Number);
+    const when = days <= 1 ? 'Last night' : days < 7 ? `On ${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}` : 'Last time';
+    const letGo = last.letGo.length + (last.sunk?.length ?? 0);
+    const count = (n: number) => (n === 1 ? 'one thing' : `${n} things`);
+    let sentence: string | null = null;
+    if (letGo > 0) sentence = `${when} you let go of ${count(letGo)}.`;
+    else if (last.tomorrow.length > 0) sentence = `${when} you kept ${count(last.tomorrow.length)} for the next day.`;
+    else if ((last.breaths ?? 0) > 0) sentence = `${when} you took ${last.breaths} slow breaths.`;
+    return { sentence, followUps };
+  }
+
+  /** "Forget everything": every evening, star, plan and follow-up kept on this device is erased. */
+  forget(): void {
+    this.data = emptyData();
+    try {
+      (this.store as (KeyValueStore & { removeItem?: (key: string) => void }) | null)?.removeItem?.(STORAGE_KEY);
+    } catch {
+      // Nothing stored.
+    }
+    this.save();
+  }
+
+  /** Last kept plan to show this morning, once. `done`: what was said done last evening (the card cites it). */
+  morningPlan(): { date: string; tomorrow: string[]; plan: PlanStep[]; done: string[] } | null {
     const now = this.now();
     if (!isMorning(now)) {
       return null;
     }
     const lastEvening = localDate(new Date(now.getTime() - 12 * 3600_000)); // 05:00–12:00 → last evening
     const night = this.data.nights.find((n) => n.date === lastEvening);
-    if (night == null || night.tomorrow.length === 0 || this.data.morningSeen === lastEvening) {
+    const done = night == null ? [] : this.doneOn(night.date);
+    if (night == null || (night.tomorrow.length === 0 && done.length === 0) || this.data.morningSeen === lastEvening) {
       return null;
     }
-    return { date: night.date, tomorrow: night.tomorrow, plan: night.planKept ? night.plan : [] };
+    return { date: night.date, tomorrow: night.tomorrow, plan: night.planKept ? night.plan : [], done };
   }
 
   markMorningSeen(): void {

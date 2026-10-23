@@ -50,6 +50,20 @@
       }
       .note p:last-child { margin: 0; }
       footer { margin-top: 36px; font-size: 13px; color: var(--tertiary); }
+      .forget {
+        min-height: 44px;
+        padding: 0 18px;
+        border: 0;
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.1);
+        box-shadow: inset 0 0 0 1px var(--edge);
+        color: var(--primary);
+        font: 600 15px var(--font);
+        cursor: pointer;
+      }
+      .forget:hover { background: rgba(255, 255, 255, 0.16); }
+      .forget:focus-visible { outline: 3px solid rgba(255, 255, 255, 0.7); outline-offset: 2px; }
+      .forget-done { margin-left: 10px; color: var(--secondary); font-size: 14px; }
     </style>
   </head>
   <body>
@@ -79,10 +93,13 @@
 
       <h2>On your device</h2>
       <p>
-        Your stones, your plan for tomorrow, the stars of what you let go, where your desk stands and your settings are kept
-        in this browser only, on this headset. Nobody else can see them. Clearing this site's data in the browser erases
-        them for good.
+        Your stones, your plan for tomorrow, what you said was done, the stars of what you let go, where your desk stands
+        and your settings are kept in this browser only, on this headset. Nobody else can see them. The lamp uses them to
+        remember: “Last night you let go of 3 things. Did you call the dentist?”
       </p>
+      <p>To erase every evening, say <strong>“forget everything”</strong> at the desk, or use this button:</p>
+      <p><button type="button" id="forget" class="forget">Forget my evenings</button> <span id="forget-done" class="forget-done" role="status"></span></p>
+      <p>Where your desk stands and your accessibility settings stay, so the desk still finds your table.</p>
 
       <h2>The visit counter</h2>
       <p>To learn whether the demo works, the page counts a few anonymous steps, for example:</p>
@@ -101,7 +118,20 @@
         helpline.</p>
       </div>
 
-      <footer>Wind-Down Desk · last updated 23 October 2026</footer>
+      <footer>Wind-Down Desk · last updated 24 October 2026</footer>
     </main>
+    <script>
+      // Erases the evenings kept by the lamp (src/logic/memory.ts STORAGE_KEY), after one confirmation.
+      document.getElementById('forget').addEventListener('click', function () {
+        if (!window.confirm('Forget every evening kept on this device? Stones, stars and plans. This cannot be undone.')) return;
+        var done = document.getElementById('forget-done');
+        try {
+          localStorage.removeItem('wind-down-desk.memory.v1');
+          done.textContent = 'Forgotten.';
+        } catch (e) {
+          done.textContent = 'Nothing was kept on this device.';
+        }
+      });
+    </script>
   </body>
 </html>

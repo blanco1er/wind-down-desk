@@ -30,6 +30,9 @@ export const EVENTS: Record<string, readonly string[]> = {
   'look-pinch': ['bin'],
   /** 23 Oct: an accessibility setting changed (gaze-select, contrast, large-text) and from where (voice, button). */
   access: ['setting', 'via'],
+  /** 24 Oct: agent memory — a follow-up asked / answered (done, not-yet), and "forget everything". */
+  'follow-up': ['answer'],
+  forget: [],
   'xr-enter': ['mode'],
   'xr-exit': ['secs'],
   placed: ['source', 'mode'],

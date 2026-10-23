@@ -6,17 +6,22 @@
  * white outline shell. HandLook keeps the useful part and restyles the rest, at no extra draw call:
  *   - passthrough ("Table stays", your room): your real hands via the cameras, with only a faint warm rim;
  *   - Full (a place, no passthrough): soft translucent hands, warm-white with a fresnel rim, fading at the wrist —
- *     like Horizon OS system hands; the stencil then writes depth only (no hole showing the camera image).
+ *     like Horizon OS system hands; the stencil is hidden (24 Oct: written as depth only, it was drawn before the
+ *     scene and left a dark hand-shaped hole of the clear colour — the "brown silhouette" in the captures).
  * GhostHand: the same hand model, cloned, more transparent, animated between IWER's relaxed and pinch poses —
  * the onboarding demonstration of "pinch a stone, drop it in a bowl".
  */
-import { Euler, Group, Matrix4, Quaternion, ShaderMaterial, Vector3, type Bone, type Material, type Object3D, type SkinnedMesh, type World } from '@iwsdk/core';
+import { AdditiveBlending, Euler, Group, Matrix4, Quaternion, ShaderMaterial, Vector3, type Bone, type Object3D, type SkinnedMesh, type World } from '@iwsdk/core';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { HAND_JOINTS, MIRROR_TO_RIGHT, PINCH, RELAXED } from './hand-poses.ts';
 
-export function createSoftHandMaterial(): ShaderMaterial & { uniforms: { uBody: { value: number }; uRim: { value: number }; uAlpha: { value: number } } } {
+export function createSoftHandMaterial(
+  additive = false,
+): ShaderMaterial & { uniforms: { uBody: { value: number }; uRim: { value: number }; uAlpha: { value: number } } } {
   const material = new ShaderMaterial({
     uniforms: { uBody: { value: 0.22 }, uRim: { value: 0.5 }, uAlpha: { value: 1 } },
+    // The guide hand only ADDS light (it can never darken the table); the person's own hands blend normally.
+    blending: additive ? AdditiveBlending : undefined,
     vertexShader: /* glsl */ `
       #include <common>
       #include <skinning_pars_vertex>
@@ -51,7 +56,8 @@ export function createSoftHandMaterial(): ShaderMaterial & { uniforms: { uBody: 
         float fade = smoothstep(0.03, 0.09, vWristDist);
         float a = (uBody + uRim * rim) * fade * uAlpha;
         if (a < 0.003) discard;
-        gl_FragColor = vec4(vec3(0.97, 0.93, 0.87) * (0.82 + 0.4 * rim), a);
+        // Warm white, a little paler amber at the rim.
+        gl_FragColor = vec4(mix(vec3(1.0, 0.95, 0.88), vec3(1.0, 0.86, 0.66), rim) * (0.85 + 0.35 * rim), a);
       }
     `,
     transparent: true,
@@ -63,8 +69,6 @@ export function createSoftHandMaterial(): ShaderMaterial & { uniforms: { uBody: 
 interface Styled {
   stencil: SkinnedMesh;
   shell: SkinnedMesh;
-  stencilOriginal: Material;
-  depthOnly: Material;
 }
 
 type Adapters = { hand: Record<'left' | 'right', { visual?: { model?: Object3D } }> };
@@ -102,9 +106,7 @@ export class HandLook {
       if (model == null || this.styled.has(model)) continue;
       const m = handMeshes(model);
       if (m == null) continue;
-      const depthOnly = (m.stencil.material as Material).clone();
-      depthOnly.colorWrite = false;
-      this.styled.set(model, { stencil: m.stencil, shell: m.shell, stencilOriginal: m.stencil.material as Material, depthOnly });
+      this.styled.set(model, { stencil: m.stencil, shell: m.shell });
       m.shell.material = this.material;
       if (this.source == null || side === 'right') this.source = { model, side };
       changed = true;
@@ -115,7 +117,7 @@ export class HandLook {
     // Passthrough: real hands (stencil punches through), a faint warm rim. Full: soft translucent hands.
     this.material.uniforms.uBody.value = full ? 0.2 : 0;
     this.material.uniforms.uRim.value = full ? 0.5 : 0.3;
-    for (const s of this.styled.values()) s.stencil.material = full ? s.depthOnly : s.stencilOriginal;
+    for (const s of this.styled.values()) s.stencil.visible = !full;
   }
 }
 
@@ -137,7 +139,7 @@ const GHOST_BASE: [number, number, number] = [-Math.PI / 2, 0, 0];
 
 export class GhostHand {
   readonly root = new Group();
-  private readonly material = createSoftHandMaterial();
+  private readonly material = createSoftHandMaterial(true);
   private bones: Array<Bone | null> = [];
   private relaxed: Array<{ p: Vector3; q: Quaternion }> = [];
   private pinch: Array<{ p: Vector3; q: Quaternion }> = [];
@@ -208,9 +210,10 @@ export class GhostHand {
     this.root.quaternion.copy(this.yawQ).multiply(this.base);
     // Put the pinch point (thumb/index, pinched pose) exactly on the target.
     this.root.position.copy(this.tmp.copy(this.pinchPoint).applyQuaternion(this.root.quaternion)).negate().add(at);
-    this.material.uniforms.uAlpha.value = alpha * 0.7;
-    this.material.uniforms.uBody.value = 0.16;
-    this.material.uniforms.uRim.value = 0.55;
+    // 24 Oct (coordinator): a light, luminous guide, ~35–45 % at its brightest, soft fresnel edge, no hard outline.
+    this.material.uniforms.uAlpha.value = alpha;
+    this.material.uniforms.uBody.value = 0.3;
+    this.material.uniforms.uRim.value = 0.45;
     this.root.visible = alpha > 0.01;
   }
 

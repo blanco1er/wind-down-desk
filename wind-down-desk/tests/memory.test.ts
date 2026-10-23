@@ -55,7 +55,7 @@ test('the kept plan comes back the next morning, once', () => {
   const plan = [{ title: 'Landlord', step: 'Draft 3 lines', when: '09:30', minutes: 10 }];
   new RitualMemory(s, at('2026-10-18T23:00:00')).recordNight({ tomorrow: ['Landlord'], later: [], letGo: [] }, plan, true);
   const morning = new RitualMemory(s, at('2026-10-19T08:00:00'));
-  assert.deepEqual(morning.morningPlan(), { date: '2026-10-18', tomorrow: ['Landlord'], plan });
+  assert.deepEqual(morning.morningPlan(), { date: '2026-10-18', tomorrow: ['Landlord'], plan, done: [] });
   morning.markMorningSeen();
   assert.equal(new RitualMemory(s, at('2026-10-19T09:00:00')).morningPlan(), null);
   assert.equal(new RitualMemory(s, at('2026-10-19T20:00:00')).morningPlan(), null, 'evenings are for the ritual');
