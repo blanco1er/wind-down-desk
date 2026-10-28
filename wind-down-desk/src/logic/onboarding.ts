@@ -39,7 +39,9 @@ export interface OnboardingStep {
 
 export function onboardingStep(i: OnboardingInput): OnboardingStep {
   const unloading = i.mode === 'unload' && (i.phase === 'dump' || i.phase === 'sort');
-  const spawnExample = unloading && i.phase === 'dump' && i.stonesOnDesk === 0 && !i.exampleShown && i.idle >= ONBOARDING.exampleAfter;
+  // 28 Oct: a quiet evening stays in the dump after a sort (the words come back): someone who has already placed a
+  // stone never gets the example.
+  const spawnExample = unloading && i.phase === 'dump' && i.stonesOnDesk === 0 && i.sortedThisSession === 0 && !i.exampleShown && i.idle >= ONBOARDING.exampleAfter;
   const wait = i.firstEvening ? ONBOARDING.ghostAfter : ONBOARDING.ghostAfterReturning;
   const ghost = unloading && i.stonesOnDesk > 0 && i.sortedThisSession === 0 && !i.holding && i.idle >= wait;
   return { spawnExample, ghost };

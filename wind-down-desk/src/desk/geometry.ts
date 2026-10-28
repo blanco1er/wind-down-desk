@@ -313,6 +313,32 @@ export const LAMP = {
   globeY: 0.016 - 0.0006 + 0.95 * Math.sqrt(0.025 * 0.025 - (0.72 * 0.025) ** 2),
 } as const;
 
+/** Desk-local centre of the lamp while it is the breathing moon, globe radius at the end of each breath, foot scale. */
+export const MOON = { x: 0, z: -0.02, y: 0.09, exhaled: 0.07, inhaled: 0.118, foot: 2.4 } as const;
+
+/**
+ * Height of the moon's centre (desk-local) for a globe of radius `r` on a foot scaled by `footScale`: it rests on the
+ * cup rim (the centre sits where the globe's width equals the rim's), at the resting lamp's height when r = globe.
+ */
+export function moonCentreY(r: number, footScale: number): number {
+  const seat = (rr: number, rimR: number, topY: number) => topY + 0.95 * Math.sqrt(Math.max(rr * rr - rimR * rimR, 0));
+  return seat(r, LAMP.globe * 0.72 * footScale, (LAMP.footHeight - 0.0006) * footScale) + (LAMP.globeY - seat(LAMP.globe, LAMP.globe * 0.72, LAMP.footHeight - 0.0006));
+}
+
+/**
+ * 28 Oct (film review): Breathe's "Longer" / "Enough" stood on the caption plane at the back, under the caption, and
+ * the full moon (11.8 cm) stood in front of them from the seat (60–80 % hidden), 83–85 cm from the shoulder. They now
+ * come to the near side, one on each side of the moon's upper half: never behind it nor in front of it, high enough
+ * that nothing is seen through them but the room beyond the tray (head −10 to +10 cm), ≤ 60 cm from the shoulder,
+ * and 23 cm above the breathing hands (no accidental touch). Checked in tests/breathe-replies.test.ts.
+ */
+export const BREATHE_REPLIES = { x: 0.165, y: 0.27, z: 0.13, tilt: -0.5 } as const;
+
+/** Breathe's "Longer" (side −1) / "Enough" (side +1): desk-local centre and tilt, `ck` = large-text scale. */
+export function breatheReplyPose(side: -1 | 1, ck = 1): { x: number; y: number; z: number; tilt: number } {
+  return { x: side * BREATHE_REPLIES.x * ck, y: BREATHE_REPLIES.y, z: BREATHE_REPLIES.z, tilt: BREATHE_REPLIES.tilt };
+}
+
 /** Turned stoneware lamp foot (merged into the tray mesh: no extra draw call). */
 function createLampFoot(): BufferGeometry {
   const R = LAMP.footRadius;

@@ -4,7 +4,7 @@
 #   sh tools/make-deploy-tree.sh [dossier de sortie, par défaut ../../wind-down-desk-deploy]
 # Gardé : render.yaml + wind-down-desk/ (code, serveur, public/, tests, outils, réglages, licences).
 # Écarté : artifacts/ (≈ 213 Mo de vidéos et captures), archive/, film-set/ (décor de tournage, dev seulement),
-#          dist/, notes internes (PLAN.md, TECH.md, DEVPOST.md, PLAYTEST.md, agent notes,,
+#          dist/, notes internes (PLAN.md, TECH.md, DEVPOST.md, PLAYTEST.md, notes des agents,
 #          .agents/, .codex/, .cursor/, opencode.json), et tout ce qui n'est pas commité.
 # Résultat ≈ 20 Mo (dont 13 Mo de panoramas KTX2 dans public/environments, nécessaires à l'app).
 set -eu

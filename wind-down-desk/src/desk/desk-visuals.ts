@@ -24,7 +24,7 @@ import {
   type World,
 } from '@iwsdk/core';
 import type { DeskFrame, DeskLayout } from '../logic/desk-layout.ts';
-import { createLampGlobeGeometry, createQuad, createTrayGeometry, LAMP } from './geometry.ts';
+import { breatheReplyPose, createLampGlobeGeometry, createQuad, createTrayGeometry, LAMP } from './geometry.ts';
 import { PlaceBackdrop } from './environment.ts';
 import { RainField } from './rain.ts';
 import { LivingPlaces } from './living/index.ts';
@@ -1464,13 +1464,14 @@ export class DeskVisuals {
     this.keepChip.scale.set(narrow * (1 + 0.05 * keepHover) * ck, (1 + 0.05 * keepHover) * ck, 1);
     this.lighterChip.scale.set(narrow * (1 + 0.05 * lighterHover) * ck, (1 + 0.05 * lighterHover) * ck, 1);
     if (this.cardTarget === 0 && this.replyLabels != null && this.repliesBeside) {
-      // Under the caption, side by side, equal size (the moon rises in front, below them).
-      // Larger text: the caption grows around its centre, the replies step down and apart by as much.
-      const replyDy = this.captionDy - 0.1 - (this.textK - 1) * 0.09;
-      onPane(this.layout, -0.085 * ck, replyDy, this.keepChip.position);
-      onPane(this.layout, 0.085 * ck, replyDy, this.lighterChip.position);
-      this.keepChip.rotation.x = PANE.tilt;
-      this.lighterChip.rotation.x = PANE.tilt;
+      // Breathe (28 Oct): one on each side of the moon, on the near side (the full moon hid them on the caption
+      // plane, and that plane is out of reach): equal size, larger text spreads them apart by as much.
+      const l = breatheReplyPose(-1, ck);
+      const r = breatheReplyPose(1, ck);
+      this.keepChip.position.set(l.x, l.y + 0.004 * keepHover, l.z);
+      this.lighterChip.position.set(r.x, r.y + 0.004 * lighterHover, r.z);
+      this.keepChip.rotation.x = l.tilt;
+      this.lighterChip.rotation.x = r.tilt;
     } else {
       // Replies (no card) sit 2 cm higher than the plan card's chips: clear of the tray behind the bowls.
       const chipY = this.cardTarget === 0 ? 0.108 : 0.088;

@@ -24,9 +24,8 @@ function approach(current: number, target: number, rate: number, dt: number): nu
 
 /** Desk-local row of pearls, in front of the moon. */
 export const PEARL_ROW = { x: 0, z: 0.125, spacing: 0.031, radius: 0.0092 } as const;
-/** Desk-local pose of the breathing moon (centre) and of the lamp watching the water. */
-/** Desk-local centre of the lamp while it is the breathing moon, globe radius at the end of each breath, foot scale. */
-export const MOON = { x: 0, z: -0.02, y: 0.09, exhaled: 0.07, inhaled: 0.118, foot: 2.4 } as const;
+/** The breathing moon's pose lives with the lamp's geometry (shared with tests/breathe-replies.test.ts). */
+export { MOON } from './geometry.ts';
 
 export class RitualVisuals {
   readonly bowl = new Group();

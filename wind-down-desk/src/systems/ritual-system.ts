@@ -83,7 +83,7 @@ import { breathCaption, breathLine, BreatheSession, opennessFromCurl, type Breat
 import { initialRelease, overWater, releaseCaption, stepRelease, WATER_BOWL, type ReleaseEvent, type ReleaseState } from '../logic/release.ts';
 import { parseRitualCommand, proposeRitual, PROPOSAL_LINES, type EveningMode, type Proposal, type RitualCommand, type RitualKind } from '../logic/evening.ts';
 import { MOON, PEARL_ROW, RitualVisuals } from '../desk/ritual-visuals.ts';
-import { LAMP } from '../desk/geometry.ts';
+import { LAMP, moonCentreY } from '../desk/geometry.ts';
 import { DONE_LABEL, releaseChoices, unloadChoices, WRITE_LABEL } from '../logic/style.ts';
 import { eveningStep, eveningTarget } from '../logic/evening-light.ts';
 import { requestWrite } from '../voice/keyboard.ts';
@@ -1105,8 +1105,9 @@ export class RitualSystem extends createSystem({
       const suggestion = this.session.get(id)?.suggestion ?? null;
       this.visuals.setSuggest(suggestion == null ? -1 : BIN_IDS.indexOf(suggestion));
     }
-    if (this.ritual.phase === 'dump' && this.session.all().length > 0 && this.extracting === 0) {
-      // Picking up a stone means "I'm done talking": sorting begins.
+    if (this.ritual.phase === 'dump' && this.session.all().length > 0 && this.extracting === 0 && !services.style.quiet) {
+      // Picking up a stone means "I'm done talking": sorting begins. (A quiet evening goes on: once the stone is
+      // placed the words come back, and "That's all" ends it.)
       this.event({ type: 'dump-done' });
     }
   }
@@ -1156,11 +1157,15 @@ export class RitualSystem extends createSystem({
     this.layoutUnsorted(0.5);
     this.updateCounts();
     const remaining = this.session.unsorted().length;
-    this.event({ type: 'sorted', remaining });
+    const keepDump = services.style.quiet && this.mode === 'unload';
+    this.event({ type: 'sorted', remaining, keepDump });
     if (bin !== 'let-go') {
       const left = remaining === 0 ? '' : ` ${remaining} left.`;
       this.flash(`${binLabel(bin)}.${left}`, 1.6, via === 'voice' ? `"${this.heardLine}"` : '');
     }
+    // Quiet evening: the phase stays (no refresh from event()); the next caption ("Touch more words…") waits for
+    // the feedback line, or shows at once after Let go.
+    if (keepDump && this.ritual.phase === 'dump') this.refreshCaption();
     this.persist();
   }
 
@@ -2033,12 +2038,8 @@ export class RitualSystem extends createSystem({
     const fz = home.z + (MOON.z - home.z) * k;
     this.visuals.setFootMove(fx - home.x, fz - home.z, footScale);
     const r = LAMP.globe + (radius - LAMP.globe) * k;
-    // Resting on the cup rim: the centre sits where the globe's width equals the rim's.
-    const rim = LAMP.globe * 0.72 * footScale;
-    const top = (LAMP.footHeight - 0.0006) * footScale;
-    const seat = (rr: number, rimR: number, topY: number) => topY + 0.95 * Math.sqrt(Math.max(rr * rr - rimR * rimR, 0));
-    // Same height as the resting lamp at the start (no jump).
-    const centreY = seat(r, rim, top) + (LAMP.globeY - seat(LAMP.globe, LAMP.globe * 0.72, LAMP.footHeight - 0.0006));
+    // Resting on the cup rim, at the resting lamp's height at the start (no jump).
+    const centreY = moonCentreY(r, footScale);
     this.visuals.orbTo(fx, centreY, fz, r / LAMP.globe);
     this.visuals.setMoon(k, k > 0.02 ? f.level : -1);
     // Pearls: one per completed breath (brighter when the hands breathed with it).
@@ -2904,7 +2905,7 @@ export class RitualSystem extends createSystem({
       return;
     }
     if (label === DONE_LABEL) {
-      if (this.session.all().length > 0) this.event({ type: 'dump-done' });
+      if (this.session.all().length > 0) this.event({ type: 'dump-done', unsorted: this.session.unsorted().length });
       return;
     }
     if (this.usedTopics.has(label)) return;
