@@ -1813,7 +1813,7 @@ export class RitualSystem extends createSystem({
       return;
     }
     if ((action === 'keep' || action === 'lighter') && this.journal != null) {
-      this.stepJournal(action === 'keep' ? 'earlier' : 'close', 'hand');
+      this.stepJournal(action === 'keep' && this.journal.entries.length > 1 ? 'earlier' : 'close', 'hand');
       return;
     }
     if ((action === 'keep' || action === 'lighter') && this.visuals.repliesShown) {
@@ -4486,14 +4486,17 @@ export class RitualSystem extends createSystem({
       {
         title: e.label,
         subtitle: entrySubtitle(e) || 'A quiet evening',
-        rows: entryRows(e).map((r) => ({ time: '', title: r.title, detail: r.detail })),
+        // The page shows 3 rows: a 4th thing becomes "And 2 more" instead of being cut off.
+        rows: entryRows(e, 3).map((r) => ({ time: '', title: r.title, detail: r.detail })),
         footer: `${j.index + 1} of ${j.entries.length} · ${j.index === 0 ? 'the latest evening' : `${j.index} ${j.index === 1 ? 'evening' : 'evenings'} before`}`,
         accent: DS.text.primary,
       },
       true,
       'journal',
     );
-    this.visuals.setChipLabels(false, j.index < j.entries.length - 1 ? 'Earlier' : 'Latest', 'Close');
+    // 29 Oct (owner: "Latest" on the only evening there is): one evening → one button, Close.
+    if (j.entries.length === 1) this.visuals.setChipLabels(true, 'Close');
+    else this.visuals.setChipLabels(false, j.index < j.entries.length - 1 ? 'Earlier' : 'Latest', 'Close');
   }
 
   private stepJournal(step: 'earlier' | 'later' | 'newest' | 'close', via: 'hand' | 'voice'): void {

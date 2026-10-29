@@ -430,6 +430,8 @@ export class CardCanvas {
 
     const top = 232;
     const rowH = 128;
+    // No times on the page (the journal): the rows start at the left edge, not after an empty time column.
+    const col = content.rows.some((r) => r.time.length > 0) ? 168 : 0;
     content.rows.slice(0, 3).forEach((row, i) => {
       const y = top + i * rowH;
       ctx.fillStyle = DS.glass.separator;
@@ -438,10 +440,10 @@ export class CardCanvas {
       ctx.fillStyle = content.accent;
       ctx.fillText(row.time, pad, y + 60);
       ctx.fillStyle = DS.text.primary;
-      ctx.fillText(row.title, pad + 168, y + 60, W - pad * 2 - 168);
+      ctx.fillText(row.title, pad + col, y + 60, W - pad * 2 - col);
       setType(ctx, DS.type.footnote, 1.05);
       ctx.fillStyle = DS.text.secondary;
-      ctx.fillText(row.detail, pad + 168, y + 102, W - pad * 2 - 168);
+      ctx.fillText(row.detail, pad + col, y + 102, W - pad * 2 - col);
     });
     if (content.footer.length > 0) {
       setType(ctx, DS.type.footnote, 1.05);

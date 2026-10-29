@@ -60,11 +60,22 @@ export function journalEntries(nights: readonly NightRecord[]): JournalEntry[] {
   return out;
 }
 
-/** The small line under an evening's title: "7 → 3 · 6 slow breaths · Unload, Breathe". */
+/** The bead's value in the words its touch chips use (Light 2 · Some 5 · Heavy 8). */
+function weightWord(v: number): string {
+  return v <= 3 ? 'light' : v <= 6 ? 'some weight' : 'heavy';
+}
+
+/**
+ * The small line under an evening's title: "Arrived heavy, left light · 6 slow breaths · Unload, Breathe".
+ * 29 Oct (owner: "came in at 5" means nothing to someone new): the bead in words, never a bare number.
+ */
 export function entrySubtitle(e: JournalEntry): string {
   const parts: string[] = [];
-  if (e.tensionIn != null && e.tensionOut != null) parts.push(`${e.tensionIn} → ${e.tensionOut}`);
-  else if (e.tensionIn != null) parts.push(`came in at ${e.tensionIn}`);
+  if (e.tensionIn != null && e.tensionOut != null) {
+    const w = (v: number) => `${v > 3 && v <= 6 ? 'with ' : ''}${weightWord(v)}`;
+    parts.push(`Arrived ${w(e.tensionIn)}, left ${w(e.tensionOut)}`);
+  }
+  else if (e.tensionIn != null) parts.push(`Arrived ${e.tensionIn > 3 && e.tensionIn <= 6 ? 'with ' : ''}${weightWord(e.tensionIn)}`);
   if (e.breaths > 0) parts.push(`${e.breaths} slow ${e.breaths === 1 ? 'breath' : 'breaths'}`);
   if (e.rituals.length > 0) parts.push(e.rituals.join(', '));
   return parts.join(' · ');
@@ -72,9 +83,18 @@ export function entrySubtitle(e: JournalEntry): string {
 
 /** The rows of an evening's page (at most `max`): what was let go first, then kept, then saved for the next day. */
 export function entryRows(e: JournalEntry, max = 5): Array<{ title: string; detail: string }> {
-  const rows = [...e.letGo.map((t) => ({ title: t, detail: 'Let go' })), ...e.kept.map((t) => ({ title: t, detail: 'Kept' })), ...e.tomorrow.map((t) => ({ title: t, detail: 'For the next day' }))];
-  if (rows.length > max) return [...rows.slice(0, max - 1), { title: `And ${rows.length - max + 1} more`, detail: '' }];
-  return rows;
+  const all = [...e.letGo.map((t) => ({ title: t, detail: 'Let go' })), ...e.kept.map((t) => ({ title: t, detail: 'Kept' })), ...e.tomorrow.map((t) => ({ title: t, detail: 'For the next day' }))];
+  // 29 Oct (owner saw "Process the statement" twice): the same thing in the same bowl is one row, "Let go · twice".
+  const rows: Array<{ title: string; detail: string; n: number }> = [];
+  for (const r of all) {
+    const same = rows.find((o) => o.detail === r.detail && o.title.trim().toLowerCase() === r.title.trim().toLowerCase());
+    if (same != null) same.n++;
+    else rows.push({ ...r, n: 1 });
+  }
+  const times = (n: number) => (n === 2 ? 'twice' : `${n} times`);
+  const out = rows.map((r) => ({ title: r.title, detail: r.n > 1 ? `${r.detail} · ${times(r.n)}` : r.detail }));
+  if (out.length > max) return [...out.slice(0, max - 1), { title: `And ${out.length - max + 1} more`, detail: '' }];
+  return out;
 }
 
 /** The most repeated thing let go this week (similar wordings count together), if it came back at least twice. */

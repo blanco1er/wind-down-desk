@@ -80,12 +80,15 @@ test('journal: one page per evening that holds something, newest first', () => {
   assert.deepEqual(e.map((x) => x.date), ['2026-10-27', '2026-10-24', '2026-10-20'], 'the empty evening has no page');
   assert.equal(e[1].label, 'Saturday 24 Oct');
   assert.equal(dateLabel('2026-10-28'), 'Wednesday 28 Oct');
-  assert.equal(entrySubtitle(e[1]), '7 → 3 · 6 slow breaths · Unload, Breathe');
+  assert.equal(entrySubtitle(e[1]), 'Arrived heavy, left light · 6 slow breaths · Unload, Breathe');
+  assert.equal(entrySubtitle({ ...e[1], tensionOut: null, breaths: 0, rituals: [] }), 'Arrived heavy', 'the bead in words, never a bare number');
   assert.deepEqual(entryRows(e[1]).map((r) => r.detail), ['Let go', 'Let go', 'Kept', 'For the next day']);
   assert.deepEqual(e[0].letGo, ['Work emails again', 'What he said'], 'what sank counts as let go');
   const many = { ...e[1], letGo: ['a', 'b', 'c', 'd', 'e', 'f'] };
   assert.equal(entryRows(many).length, 5);
   assert.equal(entryRows(many)[4].title, 'And 4 more');
+  const twice = { ...e[1], letGo: ['Process the statement', 'process the statement '], kept: [], tomorrow: [] };
+  assert.deepEqual(entryRows(twice), [{ title: 'Process the statement', detail: 'Let go · twice' }], 'the same thing in the same bowl is one row');
 });
 
 test('journal: one true sentence about the week (nothing invented)', () => {
