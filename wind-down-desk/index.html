@@ -619,12 +619,12 @@
       .xr-alert-actions [hidden] {
         display: none;
       }
-      /* The emulated preview says what it is, and how to leave it. */
+      /* The emulated preview says what it is, and how to leave it — in the top-left corner (29 Oct, owner's
+         screen: centred, it hid the lamp's question when the caption rises over the words). */
       .preview-badge {
         position: fixed;
         top: calc(12px + env(safe-area-inset-top));
-        left: 50%;
-        transform: translateX(-50%);
+        left: calc(16px + env(safe-area-inset-left));
         /* Above the emulator's own canvas container (IWER: z-index 999) during the session. */
         z-index: 2147483000;
         display: flex;

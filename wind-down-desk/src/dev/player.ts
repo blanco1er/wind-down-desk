@@ -205,8 +205,12 @@ export function mountPlayer(world: World): PlayerApi | null {
 
   // ---------------------------------------------------------------- Retina, with a dynamic resolution
   // The emulator draws the session at 1 CSS px (blurry on Retina). We draw at the screen's pixel ratio (cap 2) and
-  // step down by quarters only if the frame time stays high (then back up): sharp when it can, smooth always.
+  // step down by quarters only if the frame time stays high (then back up).
+  // 29 Oct (owner, on a busy Mac: "the text is pixelated, not sharp, not premium"): the old rule (step down above
+  // 24 ms) sat at 1× on Retina — half resolution. A calm evening reads well at 30 i/s, blurry text never does:
+  // never below 0.75 of the screen's ratio (1.5× on Retina), and step down only under ≈ 30 i/s.
   const cap = Math.min(2, window.devicePixelRatio || 1);
+  const floor = Math.max(1, cap * 0.75);
   let scale = cap;
   let ema = 16.7;
   let lastAdapt = 0;
@@ -214,8 +218,8 @@ export function mountPlayer(world: World): PlayerApi | null {
     ema += (Math.min(dtMs, 100) - ema) * 0.05;
     if (now - lastAdapt < 2000) return;
     lastAdapt = now;
-    if (ema > 24 && scale > 1) scale = Math.max(1, scale - 0.25);
-    else if (ema < 14 && scale < cap) scale = Math.min(cap, scale + 0.25);
+    if (ema > 34 && scale > floor) scale = Math.max(floor, scale - 0.25);
+    else if (ema < 22 && scale < cap) scale = Math.min(cap, scale + 0.25);
   };
   const sharpen = () => {
     const c = dev.appCanvas;

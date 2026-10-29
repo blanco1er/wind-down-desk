@@ -28,11 +28,17 @@ export function canvasTexture(canvas: HTMLCanvasElement, anisotropy = 4, mipmaps
 /**
  * Pixel density of the glass UI canvases (caption, plan card, buttons, menus). 1 on a headset (budget: TECH.md, home
  * textures ≤ 16 MB). 2 in the desktop play-test player mode (dev server + emulator + `npm run playtest` or ?player=1,
- * not ?dev=1): a Retina screen shows these panels larger than a Quest eye does. Never 2 in a production build.
+ * not ?dev=1) and in the public emulated preview on a computer: a Retina screen shows these panels larger than a
+ * Quest eye does. Never 2 on a headset.
  */
 export const TEXT_SCALE: number = (() => {
-  if (!import.meta.env.DEV || typeof window === 'undefined') return 1;
+  if (typeof window === 'undefined') return 1;
   const params = new URLSearchParams(window.location.search);
+  // 29 Oct (owner, live site on a Retina Mac: "the text is pixelated, not sharp"): the public emulated preview
+  // (?preview=1 on a computer, never in the Quest Browser) gets the play-test density too. Read from the URL:
+  // this module is evaluated before the emulator is installed.
+  if (params.get('preview') === '1' && !/OculusBrowser|Quest/i.test(navigator.userAgent)) return 2;
+  if (!import.meta.env.DEV) return 1;
   const player = (import.meta.env.VITE_WDD_PLAYTEST === '1' || params.get('player') === '1') && params.get('dev') !== '1' && params.get('player') !== '0';
   const emulator = (window as unknown as { IWER_DEVICE?: unknown }).IWER_DEVICE != null;
   return player && emulator ? 2 : 1;
