@@ -8,7 +8,7 @@
 // Usage: node tools/solidite-29oct/prod-run.mjs <parcours|part5|busstop|fov> <url> [outDir]
 //   RENDER=swiftshader to force software rendering (≈ 2 frames/s on a busy Mac: the app's clock then runs slow).
 //   RESULT_FILE=… to choose where the JSON summary goes.
-// Server cost: none of these modes reaches the paid voice or agent (only /api/visit beacons and /api/health).
+// Server cost: no voice call. /api/visit beacons and /api/health; "parcours" also makes one /api/plan request (the plan card).
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
