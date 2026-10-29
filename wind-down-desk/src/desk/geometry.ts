@@ -72,10 +72,17 @@ function mergeTagged(parts: Array<{ geometry: BufferGeometry; kind: number }>): 
   const position = new Float32Array(count * 3);
   const normal = new Float32Array(count * 3);
   const kind = new Float32Array(count);
+  // 28 Oct: the Tripo lamp foot brings UVs, tangents and baked occlusion (the other parts: 0, +x, 1).
+  const uv = new Float32Array(count * 2);
+  const tangent = new Float32Array(count * 4);
+  const ao = new Float32Array(count).fill(1);
   let offset = 0;
   for (const { g, kind: k } of prepared) {
     const pos = g.getAttribute('position');
     const nor = g.getAttribute('normal');
+    const tex = g.getAttribute('uv');
+    const tan = g.getAttribute('tangent');
+    const occ = g.getAttribute('_ao') ?? g.getAttribute('_AO');
     for (let i = 0; i < pos.count; i++) {
       const o = (offset + i) * 3;
       position[o] = pos.getX(i);
@@ -85,6 +92,15 @@ function mergeTagged(parts: Array<{ geometry: BufferGeometry; kind: number }>): 
       normal[o + 1] = nor.getY(i);
       normal[o + 2] = nor.getZ(i);
       kind[offset + i] = k;
+      if (tex != null && tan != null) {
+        uv[(offset + i) * 2] = tex.getX(i);
+        uv[(offset + i) * 2 + 1] = tex.getY(i);
+        tangent.set([tan.getX(i), tan.getY(i), tan.getZ(i), tan.getW(i)], (offset + i) * 4);
+      } else {
+        tangent[(offset + i) * 4] = 1;
+        tangent[(offset + i) * 4 + 3] = 1;
+      }
+      if (occ != null) ao[offset + i] = occ.getX(i);
     }
     offset += pos.count;
   }
@@ -92,6 +108,9 @@ function mergeTagged(parts: Array<{ geometry: BufferGeometry; kind: number }>): 
   merged.setAttribute('position', new BufferAttribute(position, 3));
   merged.setAttribute('normal', new BufferAttribute(normal, 3));
   merged.setAttribute('aKind', new BufferAttribute(kind, 1));
+  merged.setAttribute('uv', new BufferAttribute(uv, 2));
+  merged.setAttribute('tangent', new BufferAttribute(tangent, 4));
+  merged.setAttribute('aAo', new BufferAttribute(ao, 1));
   merged.computeBoundingBox();
   merged.computeBoundingSphere();
   return merged;
@@ -118,7 +137,7 @@ function extrudeFlat(shape: Shape, depth: number, bevel: number, top: number): B
  * stoneware bowls standing on it. Tray floor at y = 0; the board extends
  * TRAY.height below. aKind: 0 = wood, 1..3 = bowl (Tomorrow, Later, Let go), 4 = lamp foot, 5 = contact shadow.
  */
-export function createTrayGeometry(layout: DeskLayout): BufferGeometry {
+export function createTrayGeometry(layout: DeskLayout, tripoFoot: BufferGeometry | null = null): BufferGeometry {
   const w = layout.width / 2 - TRAY.bevel;
   const d = layout.depth / 2 - TRAY.bevel;
   const r = TRAY.corner - TRAY.bevel;
@@ -176,7 +195,8 @@ export function createTrayGeometry(layout: DeskLayout): BufferGeometry {
     bowl.translate(bin.x, 0, bin.z);
     parts.push({ geometry: bowl, kind: i + 1 });
   });
-  const foot = createLampFoot();
+  // 28 Oct: the Tripo walnut foot with its brass ring once loaded (desk-visuals.ts), the turned lathe until then.
+  const foot = tripoFoot != null ? tripoFoot.clone() : createLampFoot();
   foot.translate(layout.orb.x, 0, layout.orb.z);
   parts.push({ geometry: foot, kind: 4 });
   return mergeTagged(parts);
@@ -306,7 +326,8 @@ export const LAMP = {
    * v8 (owner): the lamp stays SMALL outside Breathe (it only grows into the moon there). A low stoneware
    * base and a 5 cm opal globe — still above the 4.4 cm minimum touch target.
    */
-  footRadius: 0.026,
+  /** 28 Oct: the Tripo walnut foot's measured radius (tools/objets-28oct/lamp-foot.py), for its contact shadow. */
+  footRadius: 0.03,
   footHeight: 0.016,
   globe: 0.025,
   /** Globe centre height above the tray floor: resting on the cup rim (0.72 × globe), 0.95 vertical squash. */
@@ -362,6 +383,8 @@ function createLampFoot(): BufferGeometry {
 
 /** Opal glass globe, slightly flattened like hand-blown glass. */
 export function createLampGlobeGeometry(): BufferGeometry {
+  // 28 Oct: detail 3 kept (1.3 k triangles) — smooth enough through clear glass at arm's length; detail 4 (+3.8 k)
+  // would bring the evening to 98.8 k triangles, too close to the 100 k budget.
   const g = new IcosahedronGeometry(LAMP.globe, 3);
   g.scale(1, 0.95, 1);
   g.computeBoundingSphere();

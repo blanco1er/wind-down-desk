@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { FIGURES, figureFor, isSkyCommand, keepsakesFor, milestoneLine, milestoneToCelebrate, MILESTONES, plantGrowth, skyLine } from '../src/logic/milestones.ts';
+import { FIGURES, figureFor, GLOBE_STARS, isSkyCommand, keepsakesFor, milestoneLine, milestoneToCelebrate, MILESTONES, plantGrowth, skyLine, starInGlobe } from '../src/logic/milestones.ts';
 import { RitualMemory } from '../src/logic/memory.ts';
 
 test('constellation: one point per evening, a figure that completes at 3, then 7, then 21 evenings', () => {
@@ -14,11 +14,11 @@ test('constellation: one point per evening, a figure that completes at 3, then 7
   assert.deepEqual([figureFor(40).tier, figureFor(40).lit], [21, 21], 'after 21 the spiral stays complete');
 });
 
-test('keepsakes: a pebble at 3 evenings, a candle at 7, a plant at 21 (never lost), each milestone celebrated once', () => {
+test('keepsakes: a pebble at 3 evenings, a cup of tea at 7, a plant at 21 (never lost), each milestone celebrated once', () => {
   assert.deepEqual(keepsakesFor(2), []);
   assert.deepEqual(keepsakesFor(3), ['pebble']);
-  assert.deepEqual(keepsakesFor(8), ['pebble', 'candle']);
-  assert.deepEqual(keepsakesFor(30), ['pebble', 'candle', 'plant']);
+  assert.deepEqual(keepsakesFor(8), ['pebble', 'cup']);
+  assert.deepEqual(keepsakesFor(30), ['pebble', 'cup', 'plant']);
   assert.equal(milestoneToCelebrate(2, []), null);
   assert.equal(milestoneToCelebrate(3, []), 3);
   assert.equal(milestoneToCelebrate(3, [3]), null);
@@ -26,6 +26,22 @@ test('keepsakes: a pebble at 3 evenings, a candle at 7, a plant at 21 (never los
   assert.equal(plantGrowth(21), 0);
   assert.equal(plantGrowth(49), 1);
   for (const m of MILESTONES) assert.ok(milestoneLine(m).line.length <= 64, 'one caption line');
+  // 28 Oct (owner): no candle on the table any more (the lamp is the only light there).
+  for (const m of MILESTONES) assert.ok(!/candle/i.test(`${milestoneLine(m).line} ${milestoneLine(m).sub}`), 'no candle');
+  assert.deepEqual(milestoneLine(7), { line: 'Seven evenings. A cup of something warm stays with you.', sub: 'It steams again each time you come back.' });
+});
+
+test('your stars inside the glass lamp: one fixed, addressable place per star, inside the glass, apart', () => {
+  const pts = Array.from({ length: GLOBE_STARS }, (_, k) => starInGlobe(k));
+  for (const p of pts) {
+    const r = Math.hypot(...p);
+    assert.ok(r > 0.25 && r < 0.78, `inside the glass, clear of the heart (${r.toFixed(2)})`);
+  }
+  assert.deepEqual(starInGlobe(7), starInGlobe(7), 'deterministic');
+  // The first stars are well apart (the first evenings' sky reads as separate stars).
+  let min = Infinity;
+  for (let i = 0; i < 12; i++) for (let j = i + 1; j < 12; j++) min = Math.min(min, Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1], pts[i][2] - pts[j][2]));
+  assert.ok(min > 0.12, `first twelve apart (${min.toFixed(3)})`);
 });
 
 test('the lamp says the sky plainly, and "show me my sky" brings it back', () => {

@@ -12,9 +12,12 @@
  */
 import { normalize } from './text.ts';
 
-/** 24 Oct: 'talk' = "Talk it through" (a free voice talk with the lamp; never called therapy). */
-export type RitualKind = 'unload' | 'breathe' | 'release' | 'talk';
-export const RITUAL_KINDS: readonly RitualKind[] = ['unload', 'breathe', 'release', 'talk'];
+/**
+ * 24 Oct: 'talk' = "Talk it through" (a free voice talk with the lamp; never called therapy).
+ * 28 Oct: 'squeeze' = "Squeeze and let go" (fists, shoulders, jaw), 'keep' = three good things kept as lights.
+ */
+export type RitualKind = 'unload' | 'breathe' | 'release' | 'talk' | 'squeeze' | 'keep';
+export const RITUAL_KINDS: readonly RitualKind[] = ['unload', 'breathe', 'release', 'talk', 'squeeze', 'keep'];
 export type EveningMode = 'arrive' | 'choose' | RitualKind | 'night' | 'morning';
 
 export type Feeling = 'tense' | 'heavy' | 'many' | 'neutral';
@@ -24,7 +27,7 @@ export interface Proposal {
   /** Main caption, spoken by the lamp. */
   line: string;
   sub: string;
-  reason: 'start' | 'late' | 'tense' | 'heavy' | 'many' | 'chain' | 'all-done';
+  reason: 'start' | 'late' | 'tense' | 'heavy' | 'many' | 'chain' | 'all-done' | 'grateful' | 'weight' | 'light';
   /** Words to carry into the ritual (the heavy thing, the brain dump). */
   carry?: string;
 }
@@ -40,10 +43,13 @@ export interface ProposalInput {
   justDone?: RitualKind | null;
   /** 23 Oct: nobody has ever sorted a stone here (a judge's cold start): the core gesture comes first. */
   firstEvening?: boolean;
+  /** 28 Oct: how heavy tonight felt on arrival (0..10, the bead), if given. */
+  tension?: number | null;
 }
 
 const TENSE = /\b(tense|tension|stress|stressed|stressful|anxious|anxiety|overwhelm\w*|panic\w*|racing|on edge|nervous|wired|cant (sleep|relax|breathe|calm down)|tight|knot|exhausted|frazzled|shaky|restless|burn(t|ed) out|heart (is )?pounding)\b/u;
 const HEAVY = /\b(keep (thinking|replaying|going over|coming back)|cant stop (thinking|replaying|worrying)|cant let (it )?go|weigh(s|ing)?|heavy|bother(s|ing)?|hurt(s|ing)?|upset|angry|ashamed|guilt|guilty|regret\w*|replay\w*|haunt\w*|stuck on|dread\w*|still thinking)\b/u;
+const GRATEFUL = /\b(grateful|thankful|good day|great day|lovely day|nice day|happy|went well|good news|proud)\b/u;
 const MANY = /\b(so much|too much|lots|a lot|everything|to do|to-do|list|deadlines|a million|so many|all the things|emails)\b/u;
 
 /** Rough count of separate things in what was said (commas, "and", sentences). */
@@ -80,6 +86,12 @@ export const PROPOSAL_LINES = {
   afterBreathe: 'Ready for sleep?',
   again: 'Another ritual, or good night?',
   decline: 'Okay. Pick a ritual by the lamp, or just talk.',
+  // 28 Oct: the bead (tension on arrival), gratitude, the body.
+  weight: "Heavy tonight. Let's put it all on the desk.",
+  weightLate: 'Heavy, and late. Shall we breathe first?',
+  light: 'A lighter evening. Three good things from today?',
+  grateful: 'That sounds good. Shall we keep it?',
+  afterSqueeze: 'Your body is softer. A minute of breathing?',
 } as const;
 
 const MENU_HINT = 'Say "yes", tell me how you feel, or pick a ritual by the lamp.';
@@ -93,6 +105,9 @@ export function proposeRitual(input: ProposalInput): Proposal {
   const late = input.hour >= 23 || input.hour < 5;
   const heard = input.heard?.trim() ?? '';
   if (heard.length > 0) {
+    if (GRATEFUL.test(normalize(heard)) && !TENSE.test(normalize(heard)) && !HEAVY.test(normalize(heard)) && !input.doneTonight.includes('keep')) {
+      return { ritual: 'keep', line: PROPOSAL_LINES.grateful, sub: 'Say "yes", or pick a ritual by the lamp.', reason: 'grateful', carry: heard };
+    }
     const feeling = classifyFeeling(heard);
     if (feeling === 'heavy') return { ritual: 'release', line: PROPOSAL_LINES.heavy, sub: 'Say "yes", or pick a ritual by the lamp.', reason: 'heavy', carry: heard };
     if (feeling === 'tense') return { ritual: 'breathe', line: PROPOSAL_LINES.tense, sub: 'Say "yes", or pick a ritual by the lamp.', reason: 'tense', carry: heard };
@@ -101,6 +116,9 @@ export function proposeRitual(input: ProposalInput): Proposal {
   const done = input.doneTonight;
   if (input.justDone === 'unload' && !done.includes('release')) {
     return { ritual: 'release', line: PROPOSAL_LINES.afterUnload, sub: 'Say "yes" to let it sink, or pick a ritual by the lamp.', reason: 'chain' };
+  }
+  if (input.justDone === 'squeeze' && !done.includes('breathe')) {
+    return { ritual: 'breathe', line: PROPOSAL_LINES.afterSqueeze, sub: 'Say "yes", or "good night".', reason: 'chain' };
   }
   if (input.justDone === 'release' && !done.includes('breathe')) {
     return { ritual: 'breathe', line: PROPOSAL_LINES.afterRelease, sub: 'Say "yes", or "good night".', reason: 'chain' };
@@ -116,6 +134,16 @@ export function proposeRitual(input: ProposalInput): Proposal {
   }
   if (input.firstEvening === true && done.length === 0) {
     return { ritual: 'unload', line: PROPOSAL_LINES.start, sub: MENU_HINT, reason: 'start' };
+  }
+  // 28 Oct: the bead on arrival. Heavy → empty the head (or breathe, late); light → three good things. It only shapes
+  // the first proposal of the evening: the person still decides.
+  if (input.tension != null && done.length === 0) {
+    if (input.tension >= 7) {
+      return late
+        ? { ritual: 'breathe', line: PROPOSAL_LINES.weightLate, sub: MENU_HINT, reason: 'weight' }
+        : { ritual: 'unload', line: PROPOSAL_LINES.weight, sub: MENU_HINT, reason: 'weight' };
+    }
+    if (input.tension <= 3) return { ritual: 'keep', line: PROPOSAL_LINES.light, sub: MENU_HINT, reason: 'light' };
   }
   if (late && !done.includes('breathe')) {
     return { ritual: 'breathe', line: PROPOSAL_LINES.late, sub: MENU_HINT, reason: 'late' };
@@ -137,18 +165,23 @@ export type RitualCommand =
   | { type: 'finish' }
   | { type: 'longer' }
   | { type: 'sink' }
-  | { type: 'goodnight' };
+  | { type: 'goodnight' }
+  /** 28 Oct, Squeeze and let go: the voice twin of closing the fists, and of opening them. */
+  | { type: 'clench' }
+  | { type: 'unclench' };
 
 /**
  * Whole-sentence commands only (a brain dump that mentions breathing never switches ritual).
  * `where`: 'choose' (a proposal may be pending), 'breathe', 'release', or 'unload'.
  */
-export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | 'release' | 'unload' | 'talk' | 'other'): RitualCommand | null {
+export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | 'release' | 'unload' | 'talk' | 'squeeze' | 'keep' | 'other'): RitualCommand | null {
   let n = normalize(text).replace(/\b(please|lamp)\b/gu, ' ').replace(/\s+/gu, ' ').trim();
   if (n !== 'not now') n = n.replace(/\s+(now|then)$/u, '').replace(/^(okay|ok|so|well|then) (?=\w)/u, '').trim();
   if (n.length === 0) return null;
   if (/^(good ?night|goodnight|im going to (bed|sleep)|time (for|to) (bed|sleep)|sleep)$/u.test(n)) return { type: 'goodnight' };
   if (/^((show (me )?)?(the )?rituals?|menu|what can we do|options|other rituals?)$/u.test(n)) return { type: 'menu' };
+  if (where === 'squeeze' && /^(squeeze|squeezing|hold|clench|fists?|tight)$/u.test(n)) return { type: 'clench' };
+  if (where === 'squeeze' && /^(let go|let it go|release|relax|open|and let go|letting go|go)$/u.test(n)) return { type: 'unclench' };
   if (/^((lets |can we |i want to |i need to |id like to )?(breathe|breathing|do (some |the )?breathing|breathe (with me|together)|a breathing (minute|exercise))( together)?)$/u.test(n)) {
     return where === 'breathe' ? null : { type: 'pick', ritual: 'breathe' };
   }
@@ -161,6 +194,15 @@ export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | '
   if (/^((lets |can we |i want to |id like to |i need to )?(talk( it through| for a (bit|while)| a little)?|talk to you|just talk|talk things through))$/u.test(n)) {
     return where === 'talk' ? null : { type: 'pick', ritual: 'talk' };
   }
+  if (/^((lets |can we |i want to |id like to |i need to )?(squeeze( and let go)?|squeeze and release|tense and release|relax my body|body scan|let my body go|loosen up|unclench))$/u.test(n) && where !== 'squeeze') {
+    return { type: 'pick', ritual: 'squeeze' };
+  }
+  if (/^((lets |can we |i want to |id like to )?(gratitude|three good things|good things|keep something good|something good|what went well|keep the good|keep the good things))$/u.test(n)) {
+    return where === 'keep' ? null : { type: 'pick', ritual: 'keep' };
+  }
+  if ((where === 'squeeze' || where === 'keep') && /^(stop|skip|thats enough|enough|im done|finish|end( it)?|thats it|thats all|done|i want to stop|not now)$/u.test(n)) {
+    return { type: 'finish' };
+  }
   if (where === 'talk' && /^(thats all|thats all for tonight|thats it|im done|i am done|thank you|thanks|thank you lamp|enough for tonight|lets stop|stop|i want to stop)$/u.test(n)) {
     return { type: 'finish' };
   }
@@ -170,7 +212,7 @@ export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | '
   if ((where === 'breathe' || where === 'release') && /^(stop|skip|thats enough|enough|im done|finish|end( it)?|thats it|done|i want to stop|not now)$/u.test(n)) {
     return { type: 'finish' };
   }
-  if (where === 'breathe' && /^(longer|more|keep going|a few more|again|a bit longer|more breaths)$/u.test(n)) {
+  if ((where === 'breathe' || where === 'squeeze') && /^(longer|more|keep going|a few more|again|a bit longer|more breaths|once more|one more)$/u.test(n)) {
     return { type: 'longer' };
   }
   if (where === 'choose') {
@@ -180,11 +222,17 @@ export function parseRitualCommand(text: string, where: 'choose' | 'breathe' | '
   return null;
 }
 
+/** A row of the ritual menu: a ritual, your sky (the journal, 28 Oct), or Good night. */
+export type RitualMenuId = RitualKind | 'sleep' | 'sky';
+
 /** Labels of the glass ritual menu (rows by the lamp). */
-export const RITUAL_MENU: ReadonlyArray<{ id: RitualKind | 'sleep'; name: string; sub: string }> = [
+export const RITUAL_MENU: ReadonlyArray<{ id: RitualMenuId; name: string; sub: string }> = [
   { id: 'unload', name: 'Unload', sub: 'Empty your head, sort by hand' },
   { id: 'breathe', name: 'Breathe', sub: 'One slow minute, 4 in, 6 out' },
+  { id: 'squeeze', name: 'Squeeze', sub: 'Make fists, then let the light go' },
   { id: 'release', name: 'Release', sub: 'Let one heavy thing sink' },
+  { id: 'keep', name: 'Keep', sub: 'Three good things, kept as lights' },
   { id: 'talk', name: 'Talk it through', sub: 'Say it out loud, the lamp listens' },
+  { id: 'sky', name: 'Your sky', sub: 'What you let go, evening by evening' },
   { id: 'sleep', name: 'Good night', sub: 'End the evening' },
 ];

@@ -27,6 +27,19 @@ export const DONE_BUBBLE = 'That’s all for tonight.';
 export const TALK_BUBBLES = ['Today was a lot.', 'Something is on my mind.', 'Can we talk about tomorrow?', 'I feel tired, that is all.', 'Let’s breathe together.'] as const;
 export const TALK_HESITATE_AFTER = 8;
 
+/**
+ * 29 Oct (hands only): how long the person has really hesitated, for the bubbles.
+ * - Someone who has only touched so far in this brain dump (never spoke) needs no hesitation: the bubbles are their
+ *   way forward, so they are back as soon as the desk is clear (no stone waiting).
+ * - A microphone that keeps hearing noise (TV, street) resets the activity clock without ever giving a sentence:
+ *   after NOISE_GRACE + HESITATE_AFTER seconds without words or touches, the bubbles come anyway.
+ */
+export const NOISE_GRACE = 7;
+export function hesitation(c: { sinceActivity: number; sinceInput: number; touchOnly: boolean }): number {
+  if (c.touchOnly) return Math.max(c.sinceActivity, HESITATE_AFTER);
+  return Math.max(c.sinceActivity, c.sinceInput - NOISE_GRACE);
+}
+
 export interface BubbleContext {
   /** Talk evening (voice) or quiet (touch words instead). */
   quiet: boolean;

@@ -16,7 +16,11 @@ export type RitualEvent =
   | { type: 'placed' }
   | { type: 'tokens-added'; count: number }
   /** `unsorted`: stones still waiting (a quiet evening may already have sorted them all: then the plan comes). */
-  | { type: 'dump-done'; unsorted?: number }
+  /**
+   * `stones` (29 Oct): the stones really on the desk tonight, when the caller knows them. Some arrive without a
+   * 'tokens-added' (a follow-up from last night, Talk's weights): the count decides, so "That's all" is never ignored.
+   */
+  | { type: 'dump-done'; unsorted?: number; stones?: number }
   /** `keepDump` (quiet evening): sorting does not end the dump; the words come back, "That's all" ends it. */
   | { type: 'sorted'; remaining: number; keepDump?: boolean }
   | { type: 'plan-ready' }
@@ -56,7 +60,7 @@ export function step(state: RitualState, event: RitualEvent, t: number): RitualS
       }
       break;
     case 'dump-done':
-      if (state.phase === 'dump' && next.tokensOnDesk > 0) {
+      if (state.phase === 'dump' && (event.stones ?? next.tokensOnDesk) > 0) {
         if (event.unsorted === 0) {
           next.phase = 'plan';
           next.milestones.planShown ??= t;
@@ -91,6 +95,16 @@ export function step(state: RitualState, event: RitualEvent, t: number): RitualS
       break;
   }
   return next;
+}
+
+/**
+ * 29 Oct (hands only, end to end): does picking up or sorting a stone end the brain dump? Only once the person has
+ * actually spoken in it ("I'm done talking"). Someone who never speaks — a quiet evening, no microphone, or a talk
+ * evening where they simply stay silent and touch — keeps the dump open: the words come back after each stone, and
+ * "That's all" ends it.
+ */
+export function dumpEndsOnSort(c: { quiet: boolean; spoke: boolean }): boolean {
+  return !c.quiet && c.spoke;
 }
 
 /** One-line instruction shown above the desk; doubles as the onboarding. */

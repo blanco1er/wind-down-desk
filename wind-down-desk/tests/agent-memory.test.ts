@@ -55,3 +55,13 @@ test('the Privacy page button erases the same storage key the lamp uses', async 
   const { readFileSync } = await import('node:fs');
   assert.ok(readFileSync(new URL('../public/privacy.html', import.meta.url), 'utf8').includes(`'${STORAGE_KEY}'`));
 });
+
+test('29 Oct — back in XR the same evening: what was already sorted tonight is not asked again', () => {
+  const s = store();
+  new RitualMemory(s, at('2026-10-27T22:00:00')).recordNight({ tomorrow: ['Work', 'Email Sam'], later: [], letGo: [] });
+  const tonight = new RitualMemory(s, at('2026-10-28T21:00:00'));
+  assert.deepEqual(tonight.followUps(), ['Work', 'Email Sam'], 'on arrival: last night\'s open items');
+  // Tonight "Work" is placed in Tomorrow again, then the person leaves XR and comes back.
+  tonight.recordNight({ tomorrow: ['Work'], later: [], letGo: [] });
+  assert.deepEqual(new RitualMemory(s, at('2026-10-28T21:20:00')).followUps(), ['Email Sam']);
+});

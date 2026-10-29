@@ -19,7 +19,8 @@
     "server": "node server/index.ts",
     "start": "WDD_SERVE_DIST=1 node server/index.ts",
     "sounds": "node tools/make-sounds.mjs",
-    "check": "npm run typecheck && npm test && npm run build && node --test tests/bundle-secrets.test.ts"
+    "check": "npm run typecheck && npm test && npm run build && node --test tests/bundle-secrets.test.ts",
+    "parcours": "sh tools/solidite-29oct/parcours.sh"
   },
   "dependencies": {
     "@iwsdk/core": "1.0.1",

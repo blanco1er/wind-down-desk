@@ -272,6 +272,12 @@ export class DeskAnchorService {
       this.note('createAnchor missing: tonight only, without an anchor');
       return;
     }
+    // 29 Oct (permissions refused): no anchor is ever asked for when the session did not grant the feature (the
+    // emulator then left the promise pending forever: "anchoring" for the whole evening).
+    if (!((this.session?.enabledFeatures as readonly string[] | undefined)?.includes('anchors') ?? true)) {
+      this.status = 'unsupported';
+      return;
+    }
     const gen = this.generation;
     const session = this.session;
     this.creating = true;

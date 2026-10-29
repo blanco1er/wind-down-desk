@@ -12,6 +12,8 @@ export interface AgentStatus {
   agent: string;
   stt: string;
   simulated: boolean;
+  /** 29 Oct: the server has a voice for new lines (/api/speak); false → captions alone, and no 503 in the console. */
+  voice: boolean;
 }
 
 const API = ((import.meta.env.VITE_WDD_API as string | undefined) ?? '/api').replace(/\/+$/u, '');
@@ -27,7 +29,7 @@ async function withTimeout<T>(ms: number, run: (signal: AbortSignal) => Promise<
 }
 
 export class AgentClient {
-  status: AgentStatus = { mode: 'device', agent: 'on-device (simulated)', stt: 'none', simulated: true };
+  status: AgentStatus = { mode: 'device', agent: 'on-device (simulated)', stt: 'none', simulated: true, voice: false };
   private readonly local = new SimulatedAgent();
   private readonly session = Math.random().toString(36).slice(2, 10);
 
@@ -38,11 +40,12 @@ export class AgentClient {
         if (!res.ok) {
           throw new Error(String(res.status));
         }
-        return (await res.json()) as { agent: string; stt: string; simulated: { agent: boolean; stt: boolean } };
+        return (await res.json()) as { agent: string; stt: string; tts?: string | null; simulated: { agent: boolean; stt: boolean } };
       });
-      this.status = { mode: 'server', agent: health.agent, stt: health.stt, simulated: health.simulated.agent };
+      // An older server without the `tts` field: assume a voice (the 503 path still falls back to captions).
+      this.status = { mode: 'server', agent: health.agent, stt: health.stt, simulated: health.simulated.agent, voice: health.tts !== null };
     } catch {
-      this.status = { mode: 'device', agent: this.local.name, stt: 'none', simulated: true };
+      this.status = { mode: 'device', agent: this.local.name, stt: 'none', simulated: true, voice: false };
     }
     return this.status;
   }
@@ -141,6 +144,9 @@ export class AgentClient {
    * The same turn, streamed (25 Oct, lower voice latency): each finished sentence arrives as soon as the model has
    * written it; resolves with the checked whole answer. Falls back to the on-device listener.
    */
+  /** 29 Oct (tests): why a streamed turn fell back to the on-device listener, oldest first. */
+  readonly streamFallbacks: string[] = [];
+
   async talkStream(input: TalkInput, onSentence: (sentence: string) => void): Promise<TalkReply> {
     if (this.status.mode === 'server') {
       let sentences = 0;
@@ -169,13 +175,19 @@ export class AgentClient {
               if (event.type === 'sentence' && typeof event.text === 'string') {
                 sentences++;
                 onSentence(event.text);
-              } else if (event.type === 'done') return event;
+              } else if (event.type === 'done') {
+                // 29 Oct: read the stream to its end (the server closes right after "done"); a body left unread was
+                // cancelled by the browser later and logged as a failed request (net::ERR_ABORTED).
+                for (;;) if ((await reader.read()).done) break;
+                return event;
+              }
             }
           }
           throw new Error('stream ended without an answer');
         });
-      } catch {
+      } catch (e) {
         // Fall through to the on-device listener (only speak its words if nothing was said yet).
+        this.streamFallbacks.push(String((e as Error)?.message ?? e).slice(0, 120));
         const r = await this.local.talk(input);
         if (sentences === 0 && !r.crisis) for (const s of spokenSentences(r.reply, true)) onSentence(s);
         return r;

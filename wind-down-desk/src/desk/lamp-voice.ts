@@ -11,8 +11,9 @@
  * - While the lamp talks, the microphone ignores sound (half-duplex), so it
  *   never transcribes its own voice; you can still interrupt once you speak.
  */
-import { AudioUtils, type Entity, type World } from '@iwsdk/core';
+import { AudioSource, AudioUtils, Object3D, PlaybackMode, type Entity, type World } from '@iwsdk/core';
 import { envelopeAt, lineKey, speakable, type VoiceClip, type VoiceManifest } from '../logic/lamp-lines.ts';
+import { mixLevels } from '../logic/mix.ts';
 
 const STORAGE_KEY = 'wdd.voice';
 
@@ -91,13 +92,15 @@ export class LampVoice {
     }
     if (clip != null) {
       this.stop();
-      this.log.push({ t: performance.now() + 50, src: `voice/${clip.file}`, volume: 0.9 });
+      // 28 Oct: the voice's own level (logic/mix.ts; softer by default than the 0.9 of before).
+      const volume = 0.9 * mixLevels.voice;
+      this.log.push({ t: performance.now() + 50, src: `voice/${clip.file}`, volume });
       if (this.log.length > 400) this.log.shift();
-      const entity = AudioUtils.createOneShot(this.world, `${import.meta.env.BASE_URL}voice/${clip.file}`, {
-        volume: 0.9,
-        positional: true,
-        position: { x, y, z },
-      });
+      const entity = this.lineEntity(clip.file, volume);
+      entity.object3D?.position.set(x, y, z);
+      entity.object3D?.updateMatrixWorld();
+      AudioUtils.setVolume(entity, volume);
+      AudioUtils.play(entity);
       this.current = { clip, start: nowS + 0.05, until: nowS + 0.05 + clip.seconds, entity };
       this.lastKey = key;
       this.lastAt = nowS;
@@ -107,6 +110,35 @@ export class LampVoice {
       return this.synthesize(text, key, nowS);
     }
     return 0;
+  }
+
+  /**
+   * 29 Oct (long session, heap snapshot): each line used to make a new one-shot audio entity that nothing removed
+   * (IWSDK's createOneShot leaves it, and its scene group, behind): 634 PositionalAudio + Panner + Gain after 12
+   * evenings on one page, ≈ 5 MB per evening. Now one reusable entity per line of the catalogue (sounds.ts does the
+   * same per cue): at most the catalogue's size for the page's whole life, whatever the number of evenings.
+   */
+  private readonly lineEntities = new Map<string, Entity>();
+
+  private lineEntity(file: string, volume: number): Entity {
+    let entity = this.lineEntities.get(file);
+    if (entity == null) {
+      entity = this.world.createTransformEntity(new Object3D()).addComponent(AudioSource, {
+        src: `${import.meta.env.BASE_URL}voice/${file}`,
+        volume,
+        positional: true,
+        loop: false,
+        maxInstances: 1,
+        playbackMode: PlaybackMode.Restart,
+      });
+      this.lineEntities.set(file, entity);
+    }
+    return entity;
+  }
+
+  /** How many line players exist (tests: bounded by the catalogue). */
+  get players(): number {
+    return this.lineEntities.size;
   }
 
   /** Forget the last line (a replayed arrival may say the same welcome again). */
@@ -147,7 +179,7 @@ export class LampVoice {
     if (preferred != null) u.voice = preferred;
     u.rate = 0.92;
     u.pitch = 1.0;
-    u.volume = 0.9;
+    u.volume = 0.9 * mixLevels.voice;
     synth.cancel();
     synth.speak(u);
     const seconds = 0.45 + text.length * 0.065;

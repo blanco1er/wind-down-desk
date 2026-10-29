@@ -117,8 +117,13 @@ export function mountFilmSet(world: World): void {
         float lumaS = dot(cs, vec3(0.2126, 0.7152, 0.0722));
         float cool = smoothstep(-0.02, 0.08, cs.b - cs.r * 0.92);
         float windowMask = smoothstep(0.12, 0.45, max(luma, lumaS)) * cool * uNight * smoothstep(-0.12, 0.06, normalize(vDir).y);
+        // 29 Oct (owner: "an ugly yellow band on the ceiling"): the daylight blown out above the sheer curtains (a wide
+        // bright strip, warm-tinted in the photo, so the "cool" test missed it and the warm-lamp boost made it yellow)
+        // is daylight too: wide (read on the blurred copy, so small ceiling spots and lamps are spared) and high.
+        float glare = smoothstep(0.32, 0.62, lumaS) * smoothstep(0.08, 0.3, normalize(vDir).y) * uNight;
+        windowMask = max(windowMask, glare);
         // Warm lamps stay (they are the light of the evening).
-        float warm = smoothstep(0.04, 0.2, c.r - c.b) * smoothstep(0.2, 0.7, luma);
+        float warm = smoothstep(0.04, 0.2, c.r - c.b) * smoothstep(0.2, 0.7, luma) * (1.0 - glare);
         vec3 graded = c * uExposure * (1.0 - 0.5 * uDim) * vec3(1.1, 0.9, 0.7);
         // Night behind the sheer curtains: deep blue, with the blurred lights of the city.
         // Sheer curtains at night: warm fabric lit by the room lamps, a little blue night glass behind.
@@ -137,6 +142,8 @@ export function mountFilmSet(world: World): void {
   });
   const room = new Mesh(new SphereGeometry(7, 96, 48), roomMaterial);
   room.renderOrder = -10;
+  // 29 Oct: named so draw counts can leave out the emulator-only decor (absent from the Quest build).
+  room.name = 'film-set-room';
   room.frustumCulled = false;
   room.raycast = () => {};
   room.visible = false;
@@ -187,6 +194,7 @@ export function mountFilmSet(world: World): void {
   });
   const table = new Mesh(new BoxGeometry(1, 0.032, 1), tableMaterial);
   table.renderOrder = -5;
+  table.name = 'film-set-table';
   table.visible = false;
   table.raycast = () => {};
   world.createTransformEntity(table);

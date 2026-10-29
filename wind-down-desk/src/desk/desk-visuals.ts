@@ -47,13 +47,17 @@ import {
 export type { TrayUniforms };
 import { LightField } from './particles.ts';
 import { LampSpirit } from './lamp-spirit.ts';
+import { CeilingSky } from './ceiling-sky.ts';
 import { DS, Spring } from './design-tokens.ts';
 import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawGlobeButton, drawGlobeLabel, drawWordChip, drawImmersionToggle, WIDE_CHIP, drawOrnament, drawPlaceChip, drawRitualChip, type CardContent } from './text-canvas.ts';
 import { PlacePreviews } from './place-preview.ts';
+import { WordBatch } from './word-batch.ts';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Keepsakes } from './keepsakes.ts';
+import { GLOBE_STARS } from '../logic/milestones.ts';
 import { FIG_MAX } from './materials.ts';
 import type { QualityKnobs } from '../logic/quality.ts';
-import { RITUAL_MENU, type RitualKind } from '../logic/evening.ts';
+import { RITUAL_MENU, type RitualKind, type RitualMenuId } from '../logic/evening.ts';
 import { createMoonGeometry } from './ritual-geometry.ts';
 
 /**
@@ -116,10 +120,25 @@ const NEAR_WORDS = { y: 0.29, z: 0.02, tilt: -0.5, spread: 0.86 } as const;
  */
 const CAPTION_OVER_WORDS = 0.135;
 /** 24 Oct: five ritual rows (Talk it through joined): a little smaller and tighter, starting a little higher. */
-const RITUAL_ROWS = { farY: 0.47, farStep: 0.06, nearY: 0.47, nearStep: 0.053, scale: 0.9 } as const;
+/**
+ * 29 Oct (owner: "the two-column menu runs off the right of the frame"): the whole menu fits a 16:9 video frame seen
+ * from the seat (eyes ≈ 0.39 m above the tray, 0.58 m behind its centre; pitch −27°, 54° vertical FOV): the top row
+ * ≥ 3° under the frame's top edge (it stood above eye level), the right column ≤ 34° from the centre (it reached 52°).
+ * The rows stand right of the caption (which steps aside to the left), above the Let go bowl and the lamp.
+ */
+const RITUAL_ROWS = { farY: 0.322, farStep: 0.056, nearY: 0.3, nearStep: 0.05, scale: 0.9 } as const;
+/**
+ * 28 Oct: eight rows (Squeeze, Keep and Your sky joined) stand in two columns of four, so the last row stays high
+ * enough (the Let go bowl's rim never covers it) and the caption stays clear: the rituals in the first column, Keep …
+ * Good night in a second column to their right. Desk-local x of the first column and the column step, far (beside
+ * the lamp) and near (airplane seat), and their depth.
+ */
+const RITUAL_COLUMN = { rows: 4, farX: 0.2, far: 0.185, farZ: -0.12, nearX: 0.15, near: 0.175, nearZ: 0 } as const;
+/** 29 Oct: the journal's page (desk-local centre, tilt, scale of the 0.52 × 0.343 m card) and its buttons. */
+export const JOURNAL_CARD = { x: -0.07, y: 0.168, z: -0.13, tilt: -0.42, scale: 0.86, chipY: 0.034, chipZ: 0.035 } as const;
 /** Modal menus (Places, Move desk) come closer still: nothing else is touched while they are open. */
 const NEAR_MENU = { y: 0.25, z: 0.06, tilt: -0.7, spread: 0.77 } as const;
-type NearPane = typeof NEAR_WORDS | typeof NEAR_MENU;
+type NearPane = { readonly y: number; readonly z: number; readonly tilt: number; readonly spread: number };
 
 /** A point at (dx, dy) on the plane blended between the caption plane (k = 0) and a near plane (k = 1). */
 function onNearPane(layout: DeskLayout, dx: number, dy: number, k: number, out: Vector3, near: NearPane = NEAR_MENU): number {
@@ -142,6 +161,7 @@ export class DeskVisuals {
   readonly lighterChip: Mesh;
   readonly lighterEntity: Entity;
   readonly lights: LightField;
+  readonly ceilingSky = new CeilingSky();
   readonly backdrop = new PlaceBackdrop();
   /** v8: in-engine rain of the tea garden (world-anchored around the seat, outside the veranda roof). */
   readonly rain: RainField;
@@ -174,7 +194,7 @@ export class DeskVisuals {
   readonly ritualsOrnament: Mesh;
   readonly ritualsEntity: Entity;
   private readonly ritualsUniforms: CardUniforms;
-  readonly ritualChips: Array<{ id: RitualKind | 'sleep'; mesh: Mesh; entity: Entity; uniforms: CardUniforms; hover: Spring }> = [];
+  readonly ritualChips: Array<{ id: RitualMenuId; mesh: Mesh; entity: Entity; uniforms: CardUniforms; hover: Spring }> = [];
   private readonly ritualSpring = new Spring(0);
   private ritualsOpen = false;
   private ritualsLabel = '';
@@ -196,6 +216,11 @@ export class DeskVisuals {
   private readonly worldTmp = new Vector3();
   private readonly headLocal = new Vector3();
   private readonly eyeLocal = new Vector3();
+  /**
+   * 29 Oct (a low seat at a high table, the desk at chin height): the words' near pane never stands higher than
+   * 2 cm above the eyes, or the near words rose in front of the far caption (parallax) and out of a downward gaze.
+   */
+  private readonly nearWordsNow = { y: NEAR_WORDS.y as number, z: NEAR_WORDS.z as number, tilt: NEAR_WORDS.tilt as number, spread: NEAR_WORDS.spread as number };
   private ritualModalK = 0;
   /** The lamp's aura (axe 4) and what it needs each frame (no allocation). */
   private readonly spirit: LampSpirit;
@@ -288,6 +313,8 @@ export class DeskVisuals {
   /** Touch words grid (quiet evening). */
   /** Word chips; `col` is the centre column (0..3, halves for a wide bubble), `row` 0..1, `span` 1 or 2 columns. */
   readonly wordChips: Array<{ mesh: Mesh; entity: Entity; uniforms: CardUniforms; label: string | null; hover: Spring; col: number; row: number; span: number }> = [];
+  /** 29 Oct: the word chips' single draw (A/B: setEnabled(false) draws each chip itself again). */
+  readonly wordBatch: WordBatch;
   private wordKey = '';
   private wordsOpen = false;
   private readonly wordSpring = new Spring(0);
@@ -337,6 +364,7 @@ export class DeskVisuals {
 
     const trayMaterial = createTrayMaterial(layout, wood, drawEngravedLabels(layout), flatNormal);
     void this.loadOak(world, trayMaterial.uniforms as unknown as Record<string, { value: unknown }>, wood);
+    void this.loadLampFoot(world, layout);
     this.trayUniforms = trayMaterial.uniforms;
     this.tray = new Mesh(createTrayGeometry(layout), trayMaterial);
     this.tray.renderOrder = 1;
@@ -354,6 +382,7 @@ export class DeskVisuals {
     this.orbHome();
     Object.assign(this.orbPose, this.orbTarget);
     this.orb.renderOrder = 3;
+    this.orb.name = 'wdd-lamp-globe';
     // 24 Oct (axe 4): the lamp's aura of living motes AND its soft halo, in one draw call (the halo was its own mesh),
     // child of the globe so it travels and grows with it.
     this.spirit = new LampSpirit(LAMP.globe);
@@ -439,10 +468,16 @@ export class DeskVisuals {
       this.wordChips.push({ mesh, entity, uniforms: material.uniforms, label: null, hover, col: i % 4, row: Math.floor(i / 4), span: 1 });
       this.hover[`word:${i}`] = hover;
     }
+    // 29 Oct (draw budget): every word chip is drawn by ONE instanced draw (word-batch.ts); the chips stay the
+    // meshes the fingertip pokes.
+    this.wordBatch = new WordBatch(this.wordChips, this.wordChips[0].mesh.geometry);
+    this.wordBatch.attach(world.scene);
 
     // World-space light field (warm dust + night sky).
     this.lights = new LightField();
     world.createTransformEntity(this.lights.mesh);
+    // 29 Oct: the night sky laid on your ceiling at Good night (one draw call, only then).
+    world.createTransformEntity(this.ceilingSky.mesh);
 
     // Places: the backdrop sphere (drawn first, only away from your room) and its controls.
     this.backdrop.setRenderer(world.renderer);
@@ -514,6 +549,8 @@ export class DeskVisuals {
     this.hover['move-desk'] = new Spring(0);
     // 26 Oct (lot 2b): the keepsakes stand on your table, in the desk's frame (one mesh, built once).
     this.root.add(this.keepsakes.mesh);
+    // 28 Oct: the Tripo keepsakes and their atlas load in the background (stand-ins until then).
+    void this.keepsakes.load(world.renderer);
     // 26 Oct: the lamp's own Places (PLACES_IN_GLOBE): ‹ › ×, and the title over the grown globe.
     for (const action of ['globe-prev', 'globe-next', 'globe-close'] as const) {
       const material = createCardMaterial(drawGlobeButton(action === 'globe-prev' ? 'prev' : action === 'globe-next' ? 'next' : 'close'));
@@ -539,7 +576,9 @@ export class DeskVisuals {
       const material = createCardMaterial(drawRitualChip(row.id, row.name, row.sub, false, 0));
       const mesh = new Mesh(createQuad(0.19, 0.0553), material);
       // v8: a little higher and further back, so the Let go bowl's rim never covers the last row.
-      mesh.position.set(layout.orb.x - 0.03, RITUAL_ROWS.farY - i * RITUAL_ROWS.farStep, layout.orb.z - 0.09);
+      const col = i < RITUAL_COLUMN.rows ? 0 : 1;
+      const line = i % RITUAL_COLUMN.rows;
+      mesh.position.set(RITUAL_COLUMN.farX + col * RITUAL_COLUMN.far, RITUAL_ROWS.farY - line * RITUAL_ROWS.farStep, RITUAL_COLUMN.farZ);
       mesh.rotation.set(-0.18, -0.2, 0, 'YXZ');
       mesh.renderOrder = 8;
       mesh.visible = false;
@@ -549,6 +588,43 @@ export class DeskVisuals {
       this.ritualChips.push({ id: row.id, mesh, entity, uniforms: material.uniforms, hover });
       this.hover[`ritual:${row.id}`] = hover;
     });
+  }
+
+  /** 28 Oct: triangles of the Tripo lamp foot and GPU bytes of its textures (perf report). */
+  footTriangles = 0;
+  footBytes = 0;
+
+  /**
+   * 28 Oct: the lamp's foot becomes the Tripo walnut ring with its brass inlay (photoreal; the globe rests exactly
+   * where it rested). The tray mesh is rebuilt once with it (same single draw call); the turned foot stays if
+   * anything fails to load.
+   */
+  private async loadLampFoot(world: World, layout: DeskLayout): Promise<void> {
+    try {
+      const [gltf, albedo, nrm] = await Promise.all([
+        new GLTFLoader().loadAsync('./models/lamp-foot.glb'),
+        loadKtx2(world.renderer, './textures/lamp-foot-albedo.ktx2'),
+        loadKtx2(world.renderer, './textures/lamp-foot-nrm-rough-metal.ktx2'),
+      ]);
+      const mesh = gltf.scene.getObjectByName('foot') as Mesh | undefined;
+      if (mesh?.geometry == null || albedo == null || nrm == null) return;
+      for (const t of [albedo, nrm]) {
+        t.minFilter = LinearMipmapLinearFilter;
+        t.magFilter = LinearFilter;
+        t.anisotropy = 4;
+        t.needsUpdate = true;
+      }
+      const old = this.tray.geometry;
+      this.tray.geometry = createTrayGeometry(layout, mesh.geometry);
+      old.dispose();
+      this.trayUniforms.uFootAlb.value = albedo;
+      this.trayUniforms.uFootNrm.value = nrm;
+      this.trayUniforms.uFootTex.value = 1;
+      this.footTriangles = (mesh.geometry.index?.count ?? mesh.geometry.getAttribute('position').count) / 3;
+      this.footBytes = ktx2Bytes(albedo) + ktx2Bytes(nrm);
+    } catch {
+      // The turned foot stays.
+    }
   }
 
   /** Bytes of GPU memory held by the oak (for the perf report). */
@@ -579,14 +655,14 @@ export class DeskVisuals {
   }
 
   /** Opens / closes the ritual menu; `proposed` gets the lamp's warm tint, `evenings` the quiet counts. */
-  openRituals(open: boolean, proposed: RitualKind | 'sleep' | null = null, evenings: Partial<Record<RitualKind, number>> = {}, hidden: Array<RitualKind | 'sleep'> = []): void {
+  openRituals(open: boolean, proposed: RitualMenuId | null = null, evenings: Partial<Record<RitualKind, number>> = {}, hidden: RitualMenuId[] = []): void {
     this.ritualsOpen = open;
     if (open) {
       if (this.menuOpen) this.openPlaces(false);
       RITUAL_MENU.forEach((row, i) => {
         const chip = this.ritualChips[i];
         chip.uniforms.uMap.value.dispose();
-        chip.uniforms.uMap.value = drawRitualChip(row.id, row.name, row.sub, row.id === proposed, row.id === 'sleep' ? 0 : (evenings[row.id] ?? 0));
+        chip.uniforms.uMap.value = drawRitualChip(row.id, row.name, row.sub, row.id === proposed, row.id === 'sleep' || row.id === 'sky' ? 0 : (evenings[row.id] ?? 0));
         chip.mesh.visible = !hidden.includes(row.id);
       });
     }
@@ -755,8 +831,10 @@ export class DeskVisuals {
     this.figNewAt = fresh && lit > 0 ? lit - 1 : -1;
     this.figNewDelay = 1.3;
     o.uFigN.value = n;
-    // ≈ one visible star per thing let go (cells outside the glass's disk do not count).
-    o.uSkyDust.value = Math.min(290, dust * (324 / 254));
+    // 28 Oct: the first GLOBE_STARS things let go float inside the clear glass (and stay there after the sky is
+    // shown); the rest are the dust on the glass's disk (≈ one visible star each: cells outside the disk do not count).
+    o.uStarN.value = Math.min(GLOBE_STARS, Math.max(0, Math.floor(dust)));
+    o.uSkyDust.value = Math.min(290, Math.max(0, dust - GLOBE_STARS) * (324 / 254));
     this.skyLines = 0;
     this.skyLinesTarget = complete ? 1 : 0.55;
     this.skyT = seconds;
@@ -1181,7 +1259,22 @@ export class DeskVisuals {
     return this.wordsOpen;
   }
 
-  showCard(content: CardContent, withChips: boolean): void {
+  /**
+   * 29 Oct (owner: "the top of the journal page is cut off"): the journal's page stands lower, nearer and a little
+   * smaller, on the tray's back half (the bowls step aside while it is open), so the whole page, its two buttons and the
+   * sky beside it fit a 16:9 frame seen from the seat (top edge ≈ 6° under the frame's top). The plan card is as before.
+   */
+  private cardPose: 'plan' | 'journal' = 'plan';
+
+  showCard(content: CardContent, withChips: boolean, pose: 'plan' | 'journal' = 'plan'): void {
+    this.cardPose = pose;
+    if (pose === 'journal') {
+      this.card.position.set(JOURNAL_CARD.x, JOURNAL_CARD.y, JOURNAL_CARD.z);
+      this.card.rotation.x = JOURNAL_CARD.tilt;
+    } else {
+      this.card.position.set(0, 0.258, -this.layout.depth / 2 - 0.02);
+      this.card.rotation.x = -0.26;
+    }
     if (this.planLabelsDirty) {
       this.planLabelsDirty = false;
       this.chipUniforms[0].uMap.value.dispose();
@@ -1204,11 +1297,18 @@ export class DeskVisuals {
     this.captionLift.target = 0;
   }
 
-  setChipLabels(primaryOnly: boolean, primaryLabel = 'Keep this plan'): void {
+  setChipLabels(primaryOnly: boolean, primaryLabel = 'Keep this plan', secondaryLabel?: string): void {
     this.lighterChip.visible = !primaryOnly && this.keepChip.visible;
     const uniforms = this.chipUniforms[0];
     uniforms.uMap.value.dispose();
     uniforms.uMap.value = drawButton(primaryLabel, DS.accent.lamp, true);
+    // 28 Oct (the journal's "Earlier" / "Close"): the second chip can be renamed too; the plan's own labels come
+    // back with the next plan card.
+    if (secondaryLabel != null) {
+      this.chipUniforms[1].uMap.value.dispose();
+      this.chipUniforms[1].uMap.value = drawButton(secondaryLabel, DS.accent.lamp, false);
+    }
+    this.planLabelsDirty = true;
   }
 
   /** 23 Oct — accessibility: caption scale (large text) and touch-chip scale. */
@@ -1264,6 +1364,7 @@ export class DeskVisuals {
   }
 
   update(dt: number): void {
+    this.ceilingSky.update(dt);
     const m = this.trayUniforms;
     this.backdrop.update(dt);
     this.rain.update(dt);
@@ -1360,11 +1461,12 @@ export class DeskVisuals {
       this.root.updateMatrixWorld();
       this.root.worldToLocal(this.camera.getWorldPosition(this.eyeLocal));
       over += Math.min(0.05, Math.max(0, (0.48 - this.eyeLocal.y) * 0.55));
+      this.nearWordsNow.y = Math.max(0.12, Math.min(NEAR_WORDS.y, this.eyeLocal.y + 0.02));
     }
     this.captionDy = lift * 0.05 + tk * 0.03 + moonLift + wk * WORDS.lift * (1 - nk) + wk * nk * over;
     onPane(this.layout, aside * CAPTION_ASIDE, this.captionDy, this.caption.position);
     this.wordChips.forEach((chip, i) => {
-      chip.mesh.rotation.x = onNearPane(this.layout, (WORDS.x[0] + chip.col * WORDS.step) * this.chipK, WORDS.dy[chip.row] * this.chipK, nk, chip.mesh.position, NEAR_WORDS);
+      chip.mesh.rotation.x = onNearPane(this.layout, (WORDS.x[0] + chip.col * WORDS.step) * this.chipK, WORDS.dy[chip.row] * this.chipK, nk, chip.mesh.position, this.nearWordsNow);
       const hover = chip.hover.step(dt);
       chip.uniforms.uOpacity.value = Math.min(1, Math.max(0, wk * 1.3 - (i % 4) * 0.06)) * (1 - this.dim * 0.3) * this.uiK;
       chip.uniforms.uHighlight.value = hover;
@@ -1375,13 +1477,16 @@ export class DeskVisuals {
       chip.mesh.visible = chip.label != null && wk > 0.02;
     });
     // The switch: under the caption, or under the Places grid when it is open.
-    const toggleDy = menuK > 0.5 ? GRID.dy[GRID.dy.length - 1] - 0.066 : -0.128 + tk * 0.03 + lift * 0.05;
+    // (29 Oct: with the lamp's globe open — a 17 cm sphere — the switch sits 1.2 cm lower, clear of the glass.)
+    const toggleDy = menuK > 0.5 ? GRID.dy[GRID.dy.length - 1] - 0.066 - (PLACES_IN_GLOBE ? 0.012 : 0) : -0.128 + tk * 0.03 + lift * 0.05;
     this.immersionToggle.rotation.x = onNearPane(this.layout, menuK > 0.5 ? 0 : aside * CAPTION_ASIDE, toggleDy, menuK > 0.5 ? nk : 0, this.paneTmp);
     this.immersionToggle.position.copy(this.paneTmp);
     const toggleHover = this.hover.immersion.step(dt);
     // While the lamp waits for an answer (Yes / Not now, Longer / Enough, the words to touch), the switch fades out:
     // one question at a time, and nothing ever stacks on it (owner, 19 Oct: twice "it is almost glued to Yes").
-    const asking = (this.cardTarget === 0 && this.replyLabels != null) || this.wordsOpen;
+    // 29 Oct (hands only): with the lamp's globe open the replies step aside, so the switch comes back — otherwise
+    // "Full" was reachable by voice alone (a proposal is almost always waiting in a place).
+    const asking = !this.placesOpen && ((this.cardTarget === 0 && this.replyLabels != null) || this.wordsOpen);
     this.toggleHideK = approach(this.toggleHideK, asking ? 1 : 0, 6, dt);
     this.immersionUniforms.uOpacity.value = tk * (menuK > 0.5 ? menuK : Math.max(cap.value, 0.55)) * (1 - this.dim * 0.4) * (1 - this.toggleHideK);
     this.immersionUniforms.uHighlight.value = toggleHover;
@@ -1391,14 +1496,13 @@ export class DeskVisuals {
     this.cardSpring.target = this.cardTarget;
     const k = Math.max(0, Math.min(1.05, this.cardSpring.step(dt, 180, 24)));
     this.cardUniforms.uOpacity.value = Math.min(1, k);
-    this.card.scale.setScalar(0.94 + 0.06 * k);
+    this.card.scale.setScalar((0.94 + 0.06 * k) * (this.cardPose === 'journal' ? JOURNAL_CARD.scale : 1));
     if (this.cardTarget === 0 && k < 0.01) {
       this.card.visible = false;
     }
     this.updateSky(dt);
     this.updateGlobePlaces(dt);
     this.keepsakes.update(dt);
-    this.keepsakes.setFlame(1 - this.lampOut);
     // Places menu: rows rise in one after another (spring), fade out when closed.
     this.menuSpring.target = this.menuOpen ? 1 : 0;
     const menu = Math.max(0, this.menuSpring.step(dt, 200, 24));
@@ -1472,11 +1576,19 @@ export class DeskVisuals {
       this.lighterChip.position.set(r.x, r.y + 0.004 * lighterHover, r.z);
       this.keepChip.rotation.x = l.tilt;
       this.lighterChip.rotation.x = r.tilt;
+    } else if (this.cardTarget === 1 && this.cardPose === 'journal') {
+      // The journal's two buttons lie in front of its page, on the tray (the bowls are away).
+      this.keepChip.position.set(JOURNAL_CARD.x - 0.085 * ck, JOURNAL_CARD.chipY + 0.006 * keepHover, JOURNAL_CARD.chipZ);
+      this.lighterChip.position.set(JOURNAL_CARD.x + 0.085 * ck, JOURNAL_CARD.chipY + 0.006 * lighterHover, JOURNAL_CARD.chipZ);
+      this.keepChip.rotation.x = -0.75;
+      this.lighterChip.rotation.x = -0.75;
     } else {
       // Replies (no card) sit 2 cm higher than the plan card's chips: clear of the tray behind the bowls.
       const chipY = this.cardTarget === 0 ? 0.108 : 0.088;
-      this.keepChip.position.set(-0.085 * ck, chipY + 0.006 * keepHover, -this.layout.depth / 2 + 0.03);
-      this.lighterChip.position.set(0.085 * ck, chipY + 0.006 * lighterHover, -this.layout.depth / 2 + 0.03);
+      // 29 Oct: with the ritual menu open, the answers follow their question to the left (they slid behind the menu).
+      const ax = this.cardTarget === 0 ? Math.max(0, Math.min(1, aside)) * CAPTION_ASIDE : 0;
+      this.keepChip.position.set(ax - 0.085 * ck, chipY + 0.006 * keepHover, -this.layout.depth / 2 + 0.03);
+      this.lighterChip.position.set(ax + 0.085 * ck, chipY + 0.006 * lighterHover, -this.layout.depth / 2 + 0.03);
       this.keepChip.rotation.x = -0.7;
       this.lighterChip.rotation.x = -0.7;
     }
@@ -1547,8 +1659,9 @@ export class DeskVisuals {
     rig.uOrbRadius.value = LAMP.globe * s;
     rig.uOrbEnergy.value = energy * this.reveal;
     // A few golden motes drift up around the lamp (the dust field already exists: no extra draw call).
-    if (this.reveal > 0.9 && out < 0.5 && moonK < 0.2 && this.lifeT - this.moteAt > 1.4) {
-      this.moteAt = this.lifeT + Math.random() * 0.8;
+    // 29 Oct: half as many (the close-up read them as glitter with the aura).
+    if (this.reveal > 0.9 && out < 0.5 && moonK < 0.2 && this.lifeT - this.moteAt > 2.8) {
+      this.moteAt = this.lifeT + Math.random() * 1.6;
       this.lights.drift(this.worldTmp.x, this.worldTmp.y + 0.01, this.worldTmp.z, 1, 0.025, 0.06, 0.006, 5.5);
     }
     // Ritual menu rows rise in like the Places rows.
@@ -1564,16 +1677,20 @@ export class DeskVisuals {
     this.ritualChips.forEach((chip, i) => {
       if (rm > 0.001) {
         // Airplane-seat test: the rows glide from beside the lamp (≈ 77 cm from the shoulder) to in front of the
-        // Let go bowl, lower (≈ 60 cm).
+        // Let go bowl, lower (≈ 60 cm). 28 Oct: two columns of four.
+        const col = i < RITUAL_COLUMN.rows ? 0 : 1;
+        const row = i % RITUAL_COLUMN.rows;
+        const farX = RITUAL_COLUMN.farX + col * RITUAL_COLUMN.far;
+        const nearX = RITUAL_COLUMN.nearX + col * RITUAL_COLUMN.near;
         chip.mesh.position.set(
-          this.layout.orb.x - 0.03 + (0.2 - (this.layout.orb.x - 0.03)) * rowK,
-          RITUAL_ROWS.farY - i * RITUAL_ROWS.farStep + (RITUAL_ROWS.nearY - i * RITUAL_ROWS.nearStep - (RITUAL_ROWS.farY - i * RITUAL_ROWS.farStep)) * rowK,
-          this.layout.orb.z - 0.09 + (0.06 - (this.layout.orb.z - 0.09)) * rowK,
+          farX + (nearX - farX) * rowK,
+          RITUAL_ROWS.farY - row * RITUAL_ROWS.farStep + (RITUAL_ROWS.nearY - row * RITUAL_ROWS.nearStep - (RITUAL_ROWS.farY - row * RITUAL_ROWS.farStep)) * rowK,
+          RITUAL_COLUMN.farZ + (RITUAL_COLUMN.nearZ - RITUAL_COLUMN.farZ) * rowK,
         );
         const p = chip.mesh.position;
         chip.mesh.rotation.set(-0.08, Math.atan2(this.headLocal.x - p.x, this.headLocal.z - p.z), 0, 'YXZ');
       }
-      const kk = Math.min(1, Math.max(0, rm * 1.25 - i * 0.08));
+      const kk = Math.min(1, Math.max(0, rm * 1.25 - (i % RITUAL_COLUMN.rows) * 0.08 - (i < RITUAL_COLUMN.rows ? 0 : 0.04)));
       const hover = chip.hover.step(dt);
       chip.uniforms.uOpacity.value = kk;
       chip.uniforms.uHighlight.value = hover;

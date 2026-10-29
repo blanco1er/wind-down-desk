@@ -17,8 +17,11 @@ import {
   AdditiveBlending,
   CanvasTexture,
   Color,
+  CustomBlending,
   DataTexture,
   DoubleSide,
+  OneFactor,
+  OneMinusSrcAlphaFactor,
   ShaderMaterial,
   Texture,
   Vector2,
@@ -27,6 +30,7 @@ import {
 } from '@iwsdk/core';
 import type { DeskLayout } from '../logic/desk-layout.ts';
 import { LAMP, TRAY } from './geometry.ts';
+import { GLOBE_STARS, STAR_SPIN, starInGlobe } from '../logic/milestones.ts';
 import { FIRE_LIGHT_GLSL, fireUniforms } from './living/fire-light.ts';
 
 export const MAX_SHADOWS = 8;
@@ -60,6 +64,11 @@ export const rig = {
   uSH: { value: Array.from({ length: 9 }, () => new Vector3()) },
   uShMix: { value: 0 },
   uEnvEvening: { value: 0 },
+  /**
+   * 29 Oct (Keep): tonight's kept lights as small warm faux point lights on the desk (world xyz, strength 0..1+; 0 =
+   * off). Written each frame by the light field (particles.ts). No scene light: four terms in shade().
+   */
+  uKept: { value: Array.from({ length: 4 }, () => new Vector4()) },
 };
 
 /** Desk-local key light direction (unrotated). */
@@ -107,6 +116,7 @@ export const RIG = /* glsl */ `
   uniform vec3 uSH[9];
   uniform float uShMix;
   uniform float uEnvEvening;
+  uniform vec4 uKept[4];
   /** Diffuse light from the place (SH order 2, Ramamoorthi & Hanrahan), divided by π: same scale as the panorama. */
   vec3 placeLight(vec3 n) {
     const float c1 = 0.429043, c2 = 0.511664, c3 = 0.743125, c4 = 0.886227, c5 = 0.247708;
@@ -150,6 +160,14 @@ export const RIG = /* glsl */ `
     // ×2.6: a campfire 5 m away must read as a warm side light on the bowls (≈ 6 % of the lamp), not vanish.
     // The cabin's painted fire is already in the SH fill: there uFire.w carries only its flicker (± around 0).
     col += albedo * fireLightAt(P, N, 0.3) * 2.6 * (1.0 - uRoomDim * 0.5);
+    // 29 Oct: the kept lights of tonight, each a small warm pool (≈ 12 cm) on what is near it, wrapped like the lamp's.
+    for (int i = 0; i < 4; i++) {
+      vec4 kl = uKept[i];
+      if (kl.w <= 0.0) continue;
+      vec3 Lk = kl.xyz - P;
+      float dk = dot(Lk, Lk);
+      col += albedo * vec3(1.0, 0.6, 0.28) * (0.3 * kl.w / (1.0 + dk * 110.0)) * max((dot(N, Lk * inversesqrt(max(dk, 1e-6))) + 0.35) / 1.35, 0.0);
+    }
     vec3 H = normalize(uKeyDir + V);
     float nh = max(dot(N, H), 0.0);
     float a = rough * rough;
@@ -201,6 +219,10 @@ export interface TrayUniforms {
   uFootAway: { value: number };
   /** v6 Breathe: the whole lamp (foot + globe) travels and grows: foot offset (dx, dz, desk-local) and scale. */
   uFootMove: { value: Vector3 };
+  /** 28 Oct: the Tripo lamp foot's textures (albedo; normal xy + roughness + metal) once loaded (uFootTex = 1). */
+  uFootAlb: { value: Texture };
+  uFootNrm: { value: Texture };
+  uFootTex: { value: number };
   /** v6 Release: the black bowl on the tray (x, z, outer radius, presence) → its soft contact shadow. */
   uBlackBowl: { value: Vector4 };
   /** 22 Oct: opacity of the merged contact shadow (0 when the desk floats). */
@@ -256,6 +278,9 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
       uBowlsAway: { value: 0 },
       uFootAway: { value: 0 },
       uFootMove: { value: new Vector3(0, 0, 1) },
+      uFootAlb: { value: NO_PLACE },
+      uFootNrm: { value: NO_PLACE },
+      uFootTex: { value: 0 },
       uBlackBowl: { value: new Vector4(0, 0, 0.13, 0) },
       uContact: { value: 0 },
       uPool: { value: 0 },
@@ -264,6 +289,11 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
     },
     vertexShader: /* glsl */ `
       attribute float aKind;
+      attribute vec4 tangent;
+      attribute float aAo;
+      varying vec2 vUv;
+      varying vec4 vTangent;
+      varying float vAo;
       uniform float uBowlsAway;
       uniform float uFootAway;
       uniform vec3 uFootMove;
@@ -295,11 +325,20 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
         vec4 world = modelMatrix * vec4(pos, 1.0);
         vWorld = world.xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        vUv = uv;
+        vTangent = vec4(normalize(mat3(modelMatrix) * tangent.xyz), tangent.w);
+        vAo = aAo;
         gl_Position = projectionMatrix * viewMatrix * world;
       }
     `,
     fragmentShader: /* glsl */ `
       #define MAX_SHADOWS ${MAX_SHADOWS}
+      uniform sampler2D uFootAlb;
+      uniform sampler2D uFootNrm;
+      uniform float uFootTex;
+      varying vec2 vUv;
+      varying vec4 vTangent;
+      varying float vAo;
       uniform float uTime;
       uniform sampler2D uWood;
       uniform sampler2D uWoodNrm;
@@ -506,13 +545,34 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
           wrap = 0.5;
           float h = vLocal.y;
           float collar = smoothstep(uFoot.y - 0.0032, uFoot.y - 0.0026, h) * step(0.0, dot(vLocalNormal.xz, lr) + 0.2);
-          if (collar > 0.0) {
+          if (collar > 0.0 && uFootTex < 0.5) {
             albedo = mix(albedo, vec3(0.62, 0.43, 0.2), collar);
             rough = mix(rough, 0.28, collar);
             f0 = mix(f0, 0.8, collar);
           }
-          float cup = step(length(lr), uFoot.x - 0.0055) * step(uFoot.y - 0.007, h);
-          emit += vec3(1.0, 0.62, 0.3) * cup * uLampGlow * 0.9;
+          if (uFootTex > 0.5) {
+            // 28 Oct: the Tripo walnut ring and its brass inlay (albedo; normal, roughness, metal), occlusion baked.
+            albedo = toLinear(texture2D(uFootAlb, vUv).rgb);
+            vec4 nr = texture2D(uFootNrm, vUv);
+            // 28 Oct (review): Tripo's walnut leaned red — calmed into a warm, natural oiled-walnut brown (brass kept).
+            float lw = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+            vec3 walnut = mix(vec3(lw), albedo, 0.3) * vec3(1.06, 0.84, 0.62);
+            albedo = mix(walnut, albedo, smoothstep(0.3, 0.7, nr.a));
+            vec3 Ng = N;
+            vec3 T = normalize(vTangent.xyz - Ng * dot(Ng, vTangent.xyz));
+            vec3 B = cross(Ng, T) * (vTangent.w < 0.0 ? -1.0 : 1.0);
+            vec2 d = nr.rg * 2.0 - 1.0;
+            N = normalize(T * d.x + B * d.y + Ng * sqrt(max(1.0 - dot(d, d), 0.0)));
+            rough = clamp(nr.b, 0.22, 1.0);
+            // Brass: darker diffuse, strong reflection (shade() has no tinted specular: the albedo carries the hue).
+            f0 = mix(0.04, 0.6, nr.a);
+            albedo *= 1.0 - 0.45 * nr.a;
+            wrap = 0.3;
+            ao *= vAo;
+          }
+          float cup = step(length(lr), 0.0175) * step(uFoot.y - 0.008, h);
+          // 28 Oct: seen through clear glass now — a warm glow in the cup, not a white bulb.
+          emit += vec3(1.0, 0.55, 0.24) * cup * uLampGlow * 0.22;
           // Upper body catches the globe's light, the foot sits in its own contact shadow.
           emit += vec3(1.0, 0.62, 0.3) * smoothstep(0.008, uFoot.y, h) * uLampGlow * 0.05 * (1.0 - cup);
           ao *= 0.62 + 0.38 * smoothstep(0.0, 0.008, h);
@@ -855,13 +915,13 @@ export function createStoneMaterial(atlas: Texture, atlasSize: Vector2): ShaderM
 }
 
 // ---------------------------------------------------------------------------
-// The voice lamp (the agent's presence): an opal glass globe on a stoneware
-// foot. One light language, readable at a glance:
-//   resting   slow, deep breathing (≈ 6 s), low warm glow
-//   listening brighter and steady; your voice swells it
-//   thinking  a soft band of light turns slowly inside the glass
-//   speaking  warm pulses with the rhythm of what it says (caption)
-//   muted     the glass goes cold and milky, no breath
+// The voice lamp (the agent's presence): a CLEAR glass globe (28 Oct, was milky opal) on a walnut foot with a
+// brass ring, alive inside. One light language, readable at a glance:
+//   resting   a warm heart breathing slowly (≈ 6.2 s) among drifting filaments and dust
+//   listening the heart brightens; your voice stirs the filaments
+//   thinking  a band of brighter threads turns inside the glass
+//   speaking  shells of light leave the heart with the words
+//   muted     the inside dims, the glass goes cold
 //   waking    on arrival: a filament warms up, flickers once, settles
 // ---------------------------------------------------------------------------
 
@@ -902,7 +962,13 @@ export interface OrbUniforms {
   uFig: { value: Vector4[] };
   uFigN: { value: number };
   uFigLines: { value: number };
+  /** 28 Oct: your stars inside the glass (one per thing let go, up to GLOBE_STARS; positions: starInGlobe). */
+  uStars: { value: Vector3[] };
+  uStarN: { value: number };
 }
+
+/** Steps of the march through the glass globe (owner's budget: 12–16). */
+const STEPS = 14;
 
 /** Points of the largest constellation figure (logic/milestones.ts FIGURES[21]). */
 export const FIG_MAX = 21;
@@ -919,6 +985,15 @@ const LAMP_GLOBE_R = 0.025;
 
 export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } {
   const material = new ShaderMaterial({
+    // 28 Oct: clear glass. Premultiplied: the globe ADDS its light and reflections, and lets (1 − alpha) of what is
+    // behind it show through (alpha = Fresnel + what fills the inside); opaque again as the moon or a place's window.
+    transparent: true,
+    depthWrite: true,
+    blending: CustomBlending,
+    blendSrc: OneFactor,
+    blendDst: OneMinusSrcAlphaFactor,
+    blendSrcAlpha: OneFactor,
+    blendDstAlpha: OneMinusSrcAlphaFactor,
     uniforms: {
       ...RIG_UNIFORMS,
       uTime: timeUniform,
@@ -944,6 +1019,8 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
       uFig: { value: Array.from({ length: FIG_MAX }, () => new Vector4(0, 0, 0, 0)) },
       uFigN: { value: 0 },
       uFigLines: { value: 0 },
+      uStars: { value: Array.from({ length: GLOBE_STARS }, (_, k) => new Vector3(...starInGlobe(k))) },
+      uStarN: { value: 0 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vNormal;
@@ -985,6 +1062,8 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
       uniform vec4 uFig[${FIG_MAX}];
       uniform float uFigN;
       uniform float uFigLines;
+      uniform vec3 uStars[${GLOBE_STARS}];
+      uniform float uStarN;
       varying vec3 vNormal;
       varying vec3 vWorld;
       varying vec3 vObj;
@@ -993,36 +1072,123 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
       ${NOISE}
       ${RIG}
       /**
-       * The lamp's inner life (axe 4): luminous filaments drifting inside the opal (seen with depth: a short march
-       * through the globe), stirred by its voice and by yours, turning faster while it thinks; and a warm heart
-       * that turns toward your eyes, brighter when you look at it or speak.
+       * 28 Oct (owner): the globe is CLEAR GLASS now, so its inner life is seen in depth. One short march (14 steps)
+       * from where the eye enters the glass to where it leaves it, the ray bent a little toward the centre near the rim
+       * (a thin hand-blown shell reads as a slight lens; no refraction pass, no second render):
+       *   - luminous filaments drifting and slowly turning (faster while it thinks, stirred by its voice and yours);
+       *   - a warm heart that breathes with the lamp (≈ 6.2 s) and turns toward your eyes when you look at it;
+       *   - while it speaks, soft shells of light travel out from the heart in time with the words;
+       *   - fine luminous dust in parallax (cells in the globe's own frame: it moves with your head, not with the screen).
+       * Returns the light gathered (rgb) and how much the inside covers what is behind it (a).
        */
-      vec2 innerLight(vec3 ro, vec3 rd) {
+      vec4 innerLife(vec3 ro, vec3 rd, float breath) {
         vec3 oc = ro - vCenter;
         float b = dot(oc, rd);
         float h = b * b - (dot(oc, oc) - vRadius * vRadius);
-        if (h <= 0.0) return vec2(0.0);
+        if (h <= 0.0) return vec4(0.0);
         float sq = sqrt(h);
-        float t0 = -b - sq;
-        float len = 2.0 * sq;
+        float t0 = max(-b - sq, 0.0);
+        float len = max(-b + sq - t0, 0.0);
         float sw = uTime * (0.16 + 0.55 * uThinking) + uSpeak * 0.5;
         float cs = cos(sw);
         float sn = sin(sw);
-        vec3 heartAt = normalize(uLook) * (0.28 + 0.14 * uLookK);
+        vec3 heartAt = normalize(uLook) * (0.2 + 0.16 * uLookK) + vec3(0.0, -0.08, 0.0);
+        float heartR = 0.09 + 0.035 * breath + 0.03 * uSpeak + 0.025 * uLevel * uListening;
+        float ang0 = uTime * 2.4;
         float fil = 0.0;
         float heart = 0.0;
-        for (int i = 0; i < 6; i++) {
-          vec3 p = (oc + rd * (t0 + len * (float(i) + 0.5) / 6.0)) / vRadius;
+        float rings = 0.0;
+        float dust = 0.0;
+        float neb = 0.0;
+        float stepLen = len / (${STEPS}.0 * vRadius);
+        // Only a few threads at a time: a slow, large-scale mask (once per ray, at its middle) lets two or three show.
+        vec3 mid = (oc + rd * (t0 + 0.5 * len)) / vRadius;
+        vec3 qm = vec3(cs * mid.x - sn * mid.z, mid.y, sn * mid.x + cs * mid.z);
+        float few = smoothstep(0.5, 0.76, vnoise(qm * 1.1 + vec3(7.0, uTime * 0.05, 3.0)));
+        for (int i = 0; i < ${STEPS}; i++) {
+          vec3 p = (oc + rd * (t0 + len * (float(i) + 0.5) / ${STEPS}.0)) / vRadius;
           vec3 q = vec3(cs * p.x - sn * p.z, p.y, sn * p.x + cs * p.z);
-          float n = vnoise(q * 2.3 + vec3(0.0, uTime * 0.17, uSpeak * 0.6));
-          float f = pow(1.0 - abs(n * 2.0 - 1.0), 10.0);
-          float n2 = vnoise(q * 4.4 - vec3(uTime * 0.12, uLevel * uListening * 0.8, 0.0));
-          f += 0.55 * pow(1.0 - abs(n2 * 2.0 - 1.0), 14.0);
-          fil += f * smoothstep(1.0, 0.45, dot(p, p));
+          float r2 = dot(p, p);
+          float inside = smoothstep(1.0, 0.55, r2);
+          // 28 Oct (review): long, continuous threads (one low octave, slow), no short squiggles.
+          float n = vnoise(q * 1.45 + vec3(0.0, uTime * 0.07, uSpeak * 0.4 + uLevel * uListening * 0.5));
+          float f = pow(1.0 - abs(n * 2.0 - 1.0), 26.0);
+          // Thinking: a soft band of brighter threads turning around the inside (about one turn every 2.6 s).
+          float band = pow(0.5 + 0.5 * cos(atan(p.z, p.x) - ang0), 6.0);
+          fil += f * inside * few * (1.0 + uThinking * 2.2 * band);
           vec3 d = p - heartAt;
-          heart += exp(-dot(d, d) * 6.5);
+          float dh = dot(d, d);
+          heart += exp(-dh / (heartR * heartR));
+          // A soft luminous nebula around the heart (slowly churning), the globe's calm body of light.
+          neb += exp(-dh / 0.12) * (0.55 + 0.45 * vnoise(q * 1.7 + vec3(3.0, uTime * 0.035, 1.0)));
+          // Speech: shells of light leaving the heart (≈ 1.6 per second), fading as they reach the glass.
+          float rr = sqrt(dh);
+          float shell = fract(rr * 2.4 - uTime * 1.6);
+          // Seen face-on only: a shell seen edge-on (at the globe's sides) would pile up along the ray into two lobes.
+          float faceOn = abs(dot(d, rd)) / max(rr, 1e-3);
+          rings += exp(-pow((shell - 0.5) * 7.0, 2.0)) * smoothstep(0.95, 0.2, rr) * inside * faceOn * faceOn;
         }
-        return vec2(fil, heart) / 6.0;
+        // Dust in parallax: one possible mote per cell of a 6³ grid in the globe's frame; each counted once along
+        // the ray at its true distance from the ray (stable when the head moves, no shimmer between steps).
+        vec3 pa = oc / vRadius;
+        vec3 pb = pa + rd * (len / vRadius);
+        vec3 last = vec3(1e5);
+        for (int i = 0; i < 6; i++) {
+          vec3 c = floor(mix(pa, pb, (float(i) + 0.5) / 6.0) * 3.0);
+          if (all(equal(c, last))) continue;
+          last = c;
+          float hh = fract(sin(dot(c, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+          if (hh < 0.91) continue;
+          vec3 mp = (c + 0.2 + 0.6 * fract(vec3(hh * 13.1, hh * 71.7, hh * 37.3))) / 3.0;
+          mp.y += 0.025 * sin(uTime * 0.12 + hh * 20.0);
+          if (dot(mp, mp) > 0.8) continue;
+          vec3 w = mp - pa;
+          float along = clamp(dot(w, rd), 0.0, len / vRadius);
+          float dd = length(w - rd * along);
+          float tw = 0.8 + 0.2 * sin(uTime * (0.25 + hh * 0.5) + hh * 30.0);
+          dust += exp(-dd * dd / 0.00007) * tw;
+        }
+        float k = stepLen;
+        return vec4(fil * k * 1.9, heart * k * 0.9 + neb * k * 0.5, rings * k * 0.75, dust);
+      }
+
+      /**
+       * Your stars inside the lamp (lot 2b, 28 Oct): the first ${GLOBE_STARS} things you let go of float inside the glass,
+       * each at its own fixed place in the globe's frame (logic/milestones.ts starInGlobe(k), turning with the globe
+       * at STAR_SPIN rad/s): addressable one by one (the coming "notebook" touches a star). Glow by distance from the
+       * eye's ray; the farther ones a little dimmer.
+       */
+      float innerStars(vec3 ro, vec3 rd) {
+        if (uStarN < 0.5) return 0.0;
+        vec3 oc = (ro - vCenter) / vRadius;
+        float a = uTime * ${STAR_SPIN.toFixed(3)};
+        float ca = cos(a);
+        float sa = sin(a);
+        float s = 0.0;
+        for (int i = 0; i < ${GLOBE_STARS}; i++) {
+          if (float(i) >= uStarN) break;
+          vec3 p0 = uStars[i];
+          vec3 p = vec3(ca * p0.x + sa * p0.z, p0.y, -sa * p0.x + ca * p0.z);
+          vec3 w = p - oc;
+          float along = max(dot(w, rd), 0.0);
+          float d = length(w - rd * along);
+          // A real star: a sharp point with a faint, tight glow, and a slow, slight twinkle.
+          float tw = 0.85 + 0.15 * sin(uTime * (0.6 + 0.05 * float(i)) + float(i) * 2.3);
+          s += (exp(-d * d / 0.00025) * 2.2 + exp(-d * d / 0.0025) * 0.06) * tw * mix(1.0, 0.6, clamp(along * 0.5, 0.0, 1.0));
+        }
+        return s;
+      }
+
+      /** A soft window reflected in the glass: two panes side by side around direction L (product-shot highlight). */
+      float paneReflection(vec3 R, vec3 L, float w, float hgt) {
+        float c = dot(R, L);
+        if (c <= 0.2) return 0.0;
+        vec3 T = normalize(cross(L, vec3(0.0, 1.0, 0.0)));
+        vec3 B = cross(T, L);
+        vec2 uv = vec2(dot(R, T), dot(R, B)) / c;
+        vec2 e = smoothstep(vec2(w, hgt), vec2(w, hgt) * 0.82, abs(uv));
+        float mullion = smoothstep(0.004, 0.012, abs(uv.x));
+        return e.x * e.y * mullion;
       }
       /**
        * The lamp shows a place (26 Oct): the glass is a lens onto it. The centre of the globe shows the place in
@@ -1119,50 +1285,75 @@ export function createOrbMaterial(): ShaderMaterial & { uniforms: OrbUniforms } 
         float energy = mix(0.62 + 0.26 * breath, 0.5 + 0.62 * breath, uMoon);
         energy = mix(energy, 0.78 + uLevel * 0.9, uListening);
         energy += uSpeak * 0.55 + uHover * 0.22;
-        // Thinking: a soft band turning around the globe (about one turn every 2.6 s).
-        float ang = atan(vObj.z, vObj.x);
-        float band = pow(0.5 + 0.5 * cos(ang - uTime * 2.4), 6.0) * smoothstep(-0.7, 0.5, vObj.y);
-        energy += uThinking * (0.18 + 0.75 * band);
         energy *= uWake * (1.0 - uMuted * 0.86);
-        // Light source low in the globe (the bulb in the foot): the top half glows more evenly.
-        float inner = 0.55 + 0.45 * smoothstep(-0.8, 0.6, vObj.y);
-        vec3 core = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.74, 0.46), pow(facing, 1.6));
-        vec3 emit = core * energy * inner * (0.35 + 0.8 * pow(facing, 1.3));
+        // Thin clear glass: Fresnel (n ≈ 1.5) with a faint thin-film iridescence toward the rim.
+        float fres = 0.04 + 0.96 * pow(1.0 - facing, 5.0);
+        vec3 film = 0.5 + 0.5 * cos(6.2831853 * (vec3(0.0, 0.33, 0.67) + (1.0 - facing) * 1.7 + 0.15));
+        vec3 R = reflect(-V, N);
+        // What the glass reflects: the place (or your room's fill), blurred; plus the room's window as two sharp
+        // panes on the key light's side and a fainter one opposite (the place's sky / the far wall).
+        vec3 fillR = mix(mix(uFillGround, uFillSky, R.y * 0.5 + 0.5) * 2.2, placeLight(R), uShMix) * (1.0 - uRoomDim * 0.7);
+        float pane = paneReflection(R, normalize(uKeyDir), 0.2, 0.3);
+        vec3 back = normalize(vec3(-uKeyDir.x, 0.55, -uKeyDir.z));
+        float pane2 = paneReflection(R, back, 0.16, 0.12);
+        vec3 refl = fillR * (0.55 + 0.45 * smoothstep(-0.2, 0.6, R.y));
+        refl += uKeyColor * pane * 0.45 + (uFillSky * 2.5 + vec3(0.05, 0.05, 0.06)) * pane2 * 0.25;
+        refl *= fres * mix(vec3(1.0), film, 0.32 * smoothstep(0.35, 0.9, 1.0 - facing));
+        // The key light's tight glint on the shell.
+        vec3 Hk = normalize(uKeyDir + V);
+        refl += uKeyColor * pow(max(dot(N, Hk), 0.0), 220.0) * 0.8;
+        // Inside: the eye's ray bent a little toward the centre near the rim (a slight lens), then marched.
+        vec3 rd = normalize(vWorld - cameraPosition);
+        vec3 rdi = normalize(rd - N * 0.18 * (1.0 - facing));
+        float alive = uWake * (1.0 - uMuted * 0.8) * (1.0 - uMoon) * (1.0 - uWindow);
+        vec3 inner = vec3(0.0);
+        float cover = 0.0;
+        if (alive > 0.01) {
+          vec4 life = innerLife(vWorld, rdi, breath);
+          float lift = 1.0 + 1.6 * uSpeak + 1.2 * uLevel * uListening + 0.6 * uThinking + 0.3 * uHover;
+          vec3 heartCol = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.78, 0.5), smoothstep(0.3, 1.2, life.y));
+          inner += vec3(1.0, 0.74, 0.44) * pow(life.x, 1.05) * lift * 1.25;
+          inner += heartCol * life.y * (1.6 + 1.4 * breath + 1.2 * uLookK + 0.8 * uListening + 0.8 * uSpeak) * energy;
+          inner += vec3(1.0, 0.8, 0.52) * life.z * uSpeak * 1.4;
+          inner += vec3(1.0, 0.9, 0.74) * life.w * 0.45 * (0.7 + 0.3 * energy);
+          inner *= alive;
+          // The bulb's light caught by the lower glass, near the foot (it sits in the cup).
+          inner += vec3(1.0, 0.6, 0.28) * energy * 0.07 * smoothstep(-0.35, -0.95, vObj.y) * (1.0 - uMoon);
+          cover = clamp(dot(inner, vec3(0.3, 0.5, 0.2)) * 0.35, 0.0, 0.5);
+        }
+        // Your stars, inside the glass (always there once your sky has been shown; brighter while it is shown).
+        float stars = innerStars(vWorld, rdi);
+        inner += vec3(1.0, 0.93, 0.8) * stars * (0.55 + 0.9 * uSky) * uWake * (1.0 - uMoon) * (1.0 - uWindow);
+        // The glass's own faint body (warm, hand-blown): a whisper of tint, more at the rim where it is thicker.
+        vec3 tint = vec3(1.0, 0.94, 0.86) * 0.012 * (0.4 + pow(1.0 - facing, 2.0));
+        vec3 col = inner + refl + tint;
+        float alpha = clamp(0.035 + 0.92 * fres + cover, 0.0, 1.0);
+        if (uMuted > 0.0) col = mix(col, col * vec3(0.84, 0.92, 1.06), uMuted);
         if (uMoon > 0.0) {
-          // The moon: an even, milky glow with faint soft maria, light rising inside on the inhale.
+          // Breathe: the glass fills with a milky moonlight (an even glow with faint soft maria, rising on the inhale).
           float maria = vnoise(vObj * 2.3 + vec3(3.1, 1.7, 0.4)) * 0.65 + vnoise(vObj * 5.1 + 9.0) * 0.35;
           vec3 moon = mix(vec3(1.0, 0.46, 0.17), vec3(1.0, 0.76, 0.48), pow(facing, 1.4)) * energy;
           moon *= 0.3 + 0.62 * pow(facing, 0.9);
           moon *= 1.0 - 0.07 * smoothstep(0.45, 0.75, maria);
           moon *= 0.82 + 0.3 * smoothstep(-1.0, 1.0, vObj.y + (breath - 0.5) * 1.2);
-          emit = mix(emit, moon, uMoon);
+          col = mix(col, moon + refl * 0.5, uMoon);
+          alpha = mix(alpha, 1.0, uMoon);
         }
-        vec2 life = innerLight(cameraPosition, normalize(vWorld - cameraPosition));
-        float alive = uWake * (1.0 - uMuted * 0.8) * (1.0 - uMoon) * (1.0 - 0.85 * uWindow);
-        // The opal glows lower and warmer so the filaments read as threads of light inside it.
-        emit *= mix(1.0, 0.42, alive);
-        emit += vec3(1.0, 0.7, 0.38) * pow(life.x, 1.3) * (1.3 + 1.8 * uSpeak + 1.3 * uLevel * uListening + 0.7 * uThinking) * alive;
-        emit += vec3(1.0, 0.78, 0.52) * life.y * (0.28 + 0.7 * uLookK + 0.4 * uListening + 0.4 * uSpeak) * alive;
-        // The glass itself: milky opal lit by the room (visible when the lamp is dim or muted).
-        vec3 opal = toLinear(vec3(0.88, 0.86, 0.83));
-        vec3 glass = shade(vWorld, N, V, opal, 0.22, 0.045, 0.6, 1.0) * mix(0.55, 0.25, clamp(energy, 0.0, 1.0));
-        glass = mix(glass, glass * vec3(0.86, 0.92, 1.05), uMuted);
-        vec3 col = glass * (1.0 - 0.75 * uMoon) + emit * (1.0 - 0.6 * uGrown);
+        vec3 sheen = vec3(0.55, 0.62, 0.72) * pow(1.0 - facing, 2.5) * 0.12;
         if (uWindow > 0.001) {
-          // The place inside the glass; the lamp's own warmth stays as a faint glow at the rim.
-          // Clear glass over it: a cool sheen at grazing angles (the warm opal is gone while it shows).
-          vec3 sheen = vec3(0.55, 0.62, 0.72) * pow(1.0 - facing, 2.5) * 0.12;
-          col = mix(col, placeWindow(N) + sheen, uWindow);
+          // A place inside the glass: the lamp is a window onto it (opaque: the place fills the globe).
+          col = mix(col, placeWindow(N) + sheen + refl * 0.6, uWindow);
+          alpha = mix(alpha, 1.0, uWindow);
         }
         if (uSky > 0.001) {
-          vec3 sheen = vec3(0.55, 0.62, 0.72) * pow(1.0 - facing, 2.5) * 0.12;
-          col = mix(col, skyWindow(N) + sheen, uSky);
+          // Your sky: a deep night fills the glass behind your stars; the constellation on the disk you see.
+          col = mix(col, skyWindow(N) + inner * 0.9 + refl * 0.6, uSky);
+          alpha = mix(alpha, 0.94, uSky);
         }
-        // A small window highlight of the room key light, and a thin milky rim.
-        vec3 H = normalize(uKeyDir + V);
-        col += uKeyColor * pow(max(dot(N, H), 0.0), 160.0) * 0.5;
-        col += vec3(0.9, 0.82, 0.72) * pow(1.0 - facing, 3.0) * (0.05 + 0.08 * energy);
-        gl_FragColor = vec4(toDisplay(col), 1.0);
+        col *= 1.0 - 0.6 * uGrown * (1.0 - max(uWindow, uSky));
+        // Premultiplied: the light the globe adds, over what shows through it (1 − alpha).
+        vec3 outc = toDisplay(col);
+        gl_FragColor = vec4(outc, alpha);
       }
     `,
   });

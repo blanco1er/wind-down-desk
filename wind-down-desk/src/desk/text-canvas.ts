@@ -801,7 +801,7 @@ export function drawImmersionToggle(full: boolean): CanvasTexture {
  * v6: one row of the ritual menu by the lamp: a round glyph, the name, a one-line description,
  * a quiet count of evenings (reason to come back), and the lamp's warm tint on the proposed ritual.
  */
-export function drawRitualChip(id: 'unload' | 'breathe' | 'release' | 'talk' | 'sleep', name: string, sub: string, proposed: boolean, evenings: number): CanvasTexture {
+export function drawRitualChip(id: 'unload' | 'breathe' | 'release' | 'talk' | 'squeeze' | 'keep' | 'sky' | 'sleep', name: string, sub: string, proposed: boolean, evenings: number): CanvasTexture {
   const { canvas, ctx } = chipCanvas();
   glass(ctx, 10, 10, 748, 204, 102);
   if (proposed) {
@@ -859,6 +859,45 @@ export function drawRitualChip(id: 'unload' | 'breathe' | 'release' | 'talk' | '
     for (const dx of [-13, 0, 13]) {
       ctx.beginPath();
       ctx.arc(cx + dx, cy - 6, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'squeeze') {
+    // 28 Oct: two soft fists, a few rays of light escaping between them.
+    ctx.lineWidth = 5;
+    for (const dx of [-17, 17]) {
+      roundRect(ctx, cx + dx - 13, cy - 8, 26, 30, 10);
+      ctx.fill();
+    }
+    for (const a of [-0.9, -0.45, 0, 0.45, 0.9]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.sin(a) * 26, cy - 14 - Math.cos(a) * 6);
+      ctx.lineTo(cx + Math.sin(a) * 40, cy - 14 - Math.cos(a) * 22);
+      ctx.stroke();
+    }
+  } else if (id === 'keep') {
+    // 28 Oct: three warm drops of light, the middle one larger.
+    for (const [dx, dy, rr] of [[-20, 10, 9], [0, -8, 14], [20, 10, 9]] as const) {
+      const drop = ctx.createRadialGradient(cx + dx, cy + dy, 1, cx + dx, cy + dy, rr * 1.8);
+      drop.addColorStop(0, 'rgba(255, 236, 200, 1)');
+      drop.addColorStop(0.5, 'rgba(255, 190, 110, 0.9)');
+      drop.addColorStop(1, 'rgba(255, 170, 90, 0)');
+      ctx.fillStyle = drop;
+      ctx.beginPath();
+      ctx.arc(cx + dx, cy + dy, rr * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'sky') {
+    // 28 Oct: a little constellation (your sky, evening by evening).
+    const pts = [[-26, 14], [-8, -10], [12, 2], [28, -18]] as const;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(cx + x, cy + y) : ctx.lineTo(cx + x, cy + y)));
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (const [x, y] of pts) {
+      ctx.beginPath();
+      ctx.arc(cx + x, cy + y, 5.5, 0, Math.PI * 2);
       ctx.fill();
     }
   } else if (id === 'release') {

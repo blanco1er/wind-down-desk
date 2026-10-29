@@ -4,15 +4,15 @@
  *
  * - The constellation: one point per evening you came back, on a figure that completes at 3, then 7, then 21
  *   evenings (a triangle, a dipper, a spiral). Around it, a fine dust of stars: one per thing you let go of.
- * - Keepsakes: a polished pebble at 3 evenings, a small candle at 7, a little plant at 21 (it keeps growing a
- *   little each evening after). Elegant, discreet, always in the same place on your table (the desk's anchor).
+ * - Keepsakes: a polished pebble at 3 evenings, a stoneware cup of tea at 7 (28 Oct, owner: a candle doubled the lamp's
+ *   light; the cup steams only when you come back), a little plant at 21 (it keeps growing a little each evening after). Elegant, discreet, always in the same place on your table (the desk's anchor).
  * - Pure logic (no rendering): tests/milestones.test.ts.
  */
 
 export const MILESTONES = [3, 7, 21] as const;
 export type Milestone = (typeof MILESTONES)[number];
-export type Keepsake = 'pebble' | 'candle' | 'plant';
-export const KEEPSAKE: Record<Milestone, Keepsake> = { 3: 'pebble', 7: 'candle', 21: 'plant' };
+export type Keepsake = 'pebble' | 'cup' | 'plant';
+export const KEEPSAKE: Record<Milestone, Keepsake> = { 3: 'pebble', 7: 'cup', 21: 'plant' };
 
 /** Figure points on the globe's disk (x right, y up, inside a 0.78 radius), in the order they light. */
 function spiral(): Array<[number, number]> {
@@ -51,6 +51,28 @@ export function figureFor(evenings: number): { tier: Milestone; points: Readonly
   return { tier, points, lit, complete: lit >= points.length };
 }
 
+/**
+ * 28 Oct (owner: a clear glass lamp, alive inside): the first GLOBE_STARS things you let go of float INSIDE the globe,
+ * one star each, at a fixed place in the globe's own frame (unit ball: 1 = the glass), turning slowly with it at
+ * STAR_SPIN rad/s around its vertical axis (angle = STAR_SPIN × the app clock, materials.ts timeUniform). Addressable:
+ * star k is always at starInGlobe(k) (a low-discrepancy spread: the first stars are far apart, none near the heart or
+ * the glass). The rest of your sky (beyond GLOBE_STARS) stays the dust shown on the glass while your sky is shown.
+ */
+/** 28 Oct (review): few, distinct stars read as real stars — 24 inside the glass, the rest as dust on it. */
+export const GLOBE_STARS = 24;
+export const STAR_SPIN = 0.05;
+export function starInGlobe(k: number): [number, number, number] {
+  const u = (k * 0.6180339887 + 0.11) % 1;
+  const v = (k * 0.7548776662 + 0.37) % 1;
+  const w = (k * 0.5698402910 + 0.53) % 1;
+  const y = 1 - 2 * v;
+  const ring = Math.sqrt(Math.max(0, 1 - y * y));
+  const a = 2 * Math.PI * u;
+  // Radius 0.34 … 0.74: clear of the heart (≈ 0.2) and of the glass, a little flattened so none hides in the foot.
+  const r = 0.34 + 0.4 * Math.cbrt(w);
+  return [+(r * ring * Math.cos(a)).toFixed(4), +(r * y * 0.85).toFixed(4), +(r * ring * Math.sin(a)).toFixed(4)];
+}
+
 /** Keepsakes earned after `evenings` evenings (each milestone reached once, never lost). */
 export function keepsakesFor(evenings: number): Keepsake[] {
   return MILESTONES.filter((m) => evenings >= m).map((m) => KEEPSAKE[m]);
@@ -83,7 +105,7 @@ export function skyLine(evenings: number, stars: number): string {
 /** The line for a milestone and the keepsake it leaves on your table. */
 export function milestoneLine(m: Milestone): { line: string; sub: string } {
   if (m === 3) return { line: 'Three evenings. A polished stone stays on your table.', sub: 'It will be here every evening.' };
-  if (m === 7) return { line: 'Seven evenings. A small candle stays with you.', sub: 'It lights itself when you come back.' };
+  if (m === 7) return { line: 'Seven evenings. A cup of something warm stays with you.', sub: 'It steams again each time you come back.' };
   return { line: 'Twenty-one evenings. A little plant now grows on your table.', sub: 'A new leaf every few evenings.' };
 }
 

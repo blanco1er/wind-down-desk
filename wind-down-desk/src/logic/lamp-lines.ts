@@ -13,6 +13,11 @@ import { PLACES, type PlaceId } from './places.ts';
 import { BREATH_LINES } from './breathe.ts';
 import { RELEASE_LINES } from './release.ts';
 import { PROPOSAL_LINES } from './evening.ts';
+import { CHECKOUT_LINES, TENSION_LINES } from './tension.ts';
+import { SQUEEZE_LINES } from './squeeze.ts';
+import { KEEP_LINES } from './keep.ts';
+import { SLEEP_LINES } from './sleep.ts';
+import { MIX_LINES } from './mix.ts';
 
 /** Same word as ritual-system's ordinal (kept in sync by tests/lamp-voice.test.ts). */
 export function ordinalWord(n: number): string {
@@ -89,6 +94,8 @@ export function lampLines(): string[] {
   ]);
   // v6 rituals: the lamp's proposals, Breathe guidance, Release.
   for (const line of [...Object.values(PROPOSAL_LINES), ...BREATH_LINES, ...RELEASE_LINES, 'Four more breaths.']) lines.add(line);
+  // 28 Oct (product pass): the bead, before and after.
+  for (const line of [...Object.values(TENSION_LINES), ...Object.values(CHECKOUT_LINES), ...SQUEEZE_LINES, ...Object.values(KEEP_LINES), ...Object.values(SLEEP_LINES), ...Object.values(MIX_LINES)]) lines.add(line);
   for (const bin of ['tomorrow', 'later', 'let-go'] as const) {
     lines.add(`Back in ${binLabel(bin)}.`);
   }

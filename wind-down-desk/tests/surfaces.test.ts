@@ -148,3 +148,12 @@ test('labelled planes always beat raw hits', () => {
   const c = chooseSurface({ planes: [plane({ id: 'desk', label: 'desk' })], hits: tableHits(0.6) }, seated);
   assert.equal(c?.plane.id, 'desk');
 });
+
+test('29 Oct — no scene model, the couch: depth hits on the coffee table (65 cm under the eyes) are not a desk', () => {
+  const couch = { position: { x: 0, y: 1.1, z: 0 }, forward: { x: 0, z: -1 } };
+  const coffee = tableHits(0.455, -0.6);
+  assert.equal(surfaceFromHits(coffee, couch), null);
+  assert.equal(chooseSurface({ planes: [], hits: coffee }, couch), null, 'the desk floats at a comfortable height');
+  // The ordinary desk from an ordinary chair is still found.
+  assert.ok(surfaceFromHits(tableHits(0.74), seated) != null);
+});

@@ -5,11 +5,15 @@
  * Files are synthesized offline by tools/make-sounds.mjs (≈130 KB total, mp3).
  */
 import { AudioSource, AudioUtils, Object3D, PlaybackMode, type Entity, type World } from '@iwsdk/core';
+import { mixLevels } from '../logic/mix.ts';
 
-export type Cue = 'appear' | 'tock' | 'snap-tomorrow' | 'snap-later' | 'release' | 'orb-on' | 'orb-off' | 'plan' | 'night' | 'morning' | RitualCue;
-/** v6 ritual sounds (209 KB), loaded only once the evening reaches the ritual choice. */
-export type RitualCue = 'sink' | 'bubbles' | 'pearl' | 'swell' | 'ebb' | 'rise' | 'moon';
-const RITUAL_CUES: readonly RitualCue[] = ['sink', 'bubbles', 'pearl', 'swell', 'ebb', 'rise', 'moon'];
+export type Cue = 'appear' | 'tock' | 'snap-tomorrow' | 'snap-later' | 'release' | 'orb-on' | 'orb-off' | 'plan' | 'night' | 'morning' | 'tick' | RitualCue;
+/**
+ * v6 ritual sounds (209 KB), loaded only once the evening reaches the ritual choice.
+ * 28 Oct: Squeeze (gather, burst), Keep (keep), the stars rising to the ceiling (ascend): +170 KB, same rule.
+ */
+export type RitualCue = 'sink' | 'bubbles' | 'pearl' | 'swell' | 'ebb' | 'rise' | 'moon' | 'gather' | 'burst' | 'keep' | 'ascend';
+const RITUAL_CUES: readonly RitualCue[] = ['sink', 'bubbles', 'pearl', 'swell', 'ebb', 'rise', 'moon', 'gather', 'burst', 'keep', 'ascend'];
 
 const FILES: Record<Cue, { src: string; volume: number }> = {
   sink: { src: 'audio/sink.mp3', volume: 0.7 },
@@ -19,6 +23,11 @@ const FILES: Record<Cue, { src: string; volume: number }> = {
   ebb: { src: 'audio/ebb.mp3', volume: 0.22 },
   rise: { src: 'audio/rise.mp3', volume: 0.5 },
   moon: { src: 'audio/moon.mp3', volume: 0.45 },
+  gather: { src: 'audio/gather.mp3', volume: 0.3 },
+  burst: { src: 'audio/burst.mp3', volume: 0.5 },
+  keep: { src: 'audio/keep.mp3', volume: 0.45 },
+  ascend: { src: 'audio/ascend.mp3', volume: 0.42 },
+  tick: { src: 'audio/tick.mp3', volume: 0.22 },
   appear: { src: 'audio/appear.mp3', volume: 0.45 },
   tock: { src: 'audio/tock.mp3', volume: 0.55 },
   'snap-tomorrow': { src: 'audio/snap-tomorrow.mp3', volume: 0.55 },
@@ -48,6 +57,23 @@ export function setMasterSound(world: World, on: boolean): boolean {
   return done;
 }
 
+/**
+ * 28 Oct ("stay till I sleep"): the master volume as a level 0..1 (the slow fade of the night). Muted stays muted:
+ * the caller passes 0 then. Returns false while the listener does not exist yet.
+ */
+export function setMasterLevel(world: World, level: number): boolean {
+  let done = false;
+  const v = Math.min(1, Math.max(0, level));
+  world.player.head.traverse((o) => {
+    const listener = o as unknown as { type?: string; setMasterVolume?(v: number): void; getMasterVolume?(): number };
+    if (listener.type === 'AudioListener' && listener.setMasterVolume != null) {
+      if (Math.abs((listener.getMasterVolume?.() ?? -1) - v) > 0.002) listener.setMasterVolume(v);
+      done = true;
+    }
+  });
+  return done;
+}
+
 /** The master volume now (null before the audio system exists): for the play-test check. */
 export function masterSound(world: World): number | null {
   let value: number | null = null;
@@ -71,7 +97,7 @@ export class SoundBank {
     const base = import.meta.env.BASE_URL;
     this.ambient = world.createTransformEntity(new Object3D()).addComponent(AudioSource, {
       src: `${base}audio/ambient.mp3`,
-      volume: 0.16,
+      volume: 0.16 * mixLevels.sound,
       loop: true,
       positional: false,
       playbackMode: PlaybackMode.FadeRestart,
@@ -91,7 +117,7 @@ export class SoundBank {
       const holder = new Object3D();
       const entity = this.world.createTransformEntity(holder).addComponent(AudioSource, {
         src: `${base}${def.src}`,
-        volume: def.volume,
+        volume: def.volume * mixLevels.sound,
         positional: true,
         refDistance: 0.6,
         rolloffFactor: 1.2,
@@ -124,9 +150,18 @@ export class SoundBank {
     }
   }
 
+  private ambientBase = 0.16;
+
   fadeAmbient(volume: number): void {
+    this.ambientBase = volume;
     if (this.ambient != null) {
-      AudioUtils.setVolume(this.ambient, volume);
+      AudioUtils.setVolume(this.ambient, volume * mixLevels.sound);
     }
+  }
+
+  /** 28 Oct: the sound's level changed (logic/mix.ts): every cue and the ambience follow at once. */
+  applyMix(): void {
+    for (const [cue, entity] of this.entities) AudioUtils.setVolume(entity, FILES[cue].volume * mixLevels.sound);
+    if (this.ambient != null) AudioUtils.setVolume(this.ambient, this.ambientBase * mixLevels.sound);
   }
 }

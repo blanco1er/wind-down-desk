@@ -31,3 +31,16 @@ moving element (fire, waves, snow, rain, fireflies, mist, glitter, aurora ripple
 `public/environments/night-*-8k.ktx2` (HD places, 26 Oct 2026): the same panoramas upscaled ×4 locally with the
 **4xRealWebPhoto_v4_dat2** model by Philip Hofmann (Phhofm), CC BY 4.0 (https://openmodeldb.info/models/4x-RealWebPhoto-v4-dat2),
 encoded with Basis Universal 2.50 (Apache-2.0, Binomial LLC). Procedure: `tools/encode-places-hd.sh`.
+
+## 3D models (Tripo, 28 Oct 2026)
+
+Generated with **Tripo Studio** (https://studio.tripo3d.ai) on the owner's **Pro** subscription, which grants
+commercial use and private models; reduced with Tripo's Smart Low Poly, then prepared for Wind-Down Desk in Blender
+(real sizes, a shared texture atlas, ambient occlusion baked per vertex, KTX2 / Basis Universal textures). Scripts:
+`tools/objets-28oct/keepsakes.py`, `tools/objets-28oct/lamp-foot.py`, `tools/objets-28oct/encode.mjs`. Sources and
+prepared files are kept outside the app in `meta-vr/assets-tripo/`.
+
+| File(s) | What | Triangles |
+|---|---|---|
+| `public/models/keepsakes.glb`, `public/textures/keepsakes-*.ktx2` | The keepsakes: a river pebble, a stoneware cup of tea on its saucer, a small potted plant | 1,438 + 2,388 + 2,879 |
+| `public/models/lamp-foot.glb`, `public/textures/lamp-foot-*.ktx2` | The lamp's foot: a turned walnut ring with a brass inlay (Tripo's glass dome cut away; the clear glass globe is drawn by the app's shader) | 1,573 |

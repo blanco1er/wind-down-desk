@@ -705,7 +705,12 @@
         #loading::after { animation: none; }
         #begin { transition: none; }
       }
-    </style>
+          /* 28 Oct: the voice / ambience mix (two sliders under the switches). */
+      .mixrow { display: grid; grid-template-columns: 1fr 9.5rem; align-items: center; gap: 0.9rem; margin: 0.65rem 0; }
+      .mixrow span { display: grid; gap: 0.15rem; }
+      .mixrow small { opacity: 0.7; font-size: 0.82rem; }
+      .mixrow input[type='range'] { width: 100%; min-height: 44px; accent-color: #f4c27e; }
+</style>
   </head>
   <body>
     <div id="scene-container"></div>
@@ -737,6 +742,8 @@
         <label class="sw"><input type="checkbox" role="switch" data-access="gazeSelect" /><span><b>Select by looking</b><small>Look at something for a moment to choose it. No hands, no voice. Say “look to select”.</small></span></label>
         <label class="sw"><input type="checkbox" role="switch" data-access="contrast" /><span><b>High contrast</b><small>White text on solid dark panels. Say “high contrast”.</small></span></label>
         <label class="sw"><input type="checkbox" role="switch" data-access="largeText" /><span><b>Larger text</b><small>Captions 30 % larger, buttons too. Say “bigger text”.</small></span></label>
+        <label class="mixrow"><span><b>Lamp’s voice</b><small>Softer by default. Say “voice softer” or “voice louder”.</small></span><input type="range" min="0" max="100" step="5" data-mix="voice" aria-label="Lamp’s voice volume" /></label>
+        <label class="mixrow"><span><b>Ambience</b><small>Places, rain, sounds. Say “sound softer”.</small></span><input type="range" min="0" max="100" step="5" data-mix="sound" aria-label="Ambience volume" /></label>
         <button class="access-done" value="done">Done</button>
       </form>
     </dialog>

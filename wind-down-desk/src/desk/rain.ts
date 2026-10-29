@@ -34,6 +34,7 @@ import {
   type Entity,
   type World,
 } from '@iwsdk/core';
+import { mixLevels } from '../logic/mix.ts';
 import type { RainSpec } from '../logic/places.ts';
 import { dropSeeds, prng } from '../logic/rain-layout.ts';
 import { rig, timeUniform } from './materials.ts';
@@ -426,9 +427,11 @@ export class RainField {
     this.root.visible = this.fade > 0;
     if (this.audio.length > 0) {
       // The sound follows the picture's fade (updated only when it changes by ≥ 1 %).
-      if (Math.abs(this.fade - this.audioLevel) > 0.01 || (this.fade === 0 && this.audioLevel !== 0)) {
-        this.audioLevel = this.fade;
-        this.audio.forEach((e, i) => AudioUtils.setVolume(e, this.audioVolumes[i] * this.fade));
+      // 28 Oct: the sound's own level (logic/mix.ts) is part of what is applied.
+      const level = this.fade * mixLevels.sound;
+      if (Math.abs(level - this.audioLevel) > 0.01 || (level === 0 && this.audioLevel !== 0)) {
+        this.audioLevel = level;
+        this.audio.forEach((e, i) => AudioUtils.setVolume(e, this.audioVolumes[i] * level));
       }
       if (this.target === 0 && this.fade === 0) {
         for (const e of this.audio) if (AudioUtils.isPlaying(e)) AudioUtils.stop(e);

@@ -53,7 +53,26 @@ export const PLACEMENT = {
   minHeadClearance: 0.22,
   maxReach: 0.9,
   minArea: 0.1,
+  /**
+   * 29 Oct (rooms never tested: the coffee table seen from the couch): the tray's centre as it would be laid
+   * (≈ inset from the near edge, frameOnTable) must be within a seated arm's reach of the shoulder (≈ 20 cm under
+   * the eyes). A low or far table that passes the horizontal test put the bowls 1 m from the shoulder: unusable by
+   * hand. Such a table is left out; the desk floats at a comfortable height instead.
+   */
+  shoulderDrop: 0.2,
+  deskInset: 0.27,
+  maxArm: 0.8,
+  /**
+   * The hit-test surface has no true near edge, so the arm check cannot apply: a surface more than 60 cm under the
+   * eyes (a coffee table from the couch; an ordinary desk is ≈ 40 cm under) is not a seated work surface.
+   */
+  maxHitDrop: 0.6,
 } as const;
+
+/** 29 Oct: distance from the shoulder to the tray's centre if the desk were laid on this table (metres). */
+export function armToDesk(height: number, reach: number, head: HeadPose): number {
+  return Math.hypot(reach + PLACEMENT.deskInset, head.position.y - PLACEMENT.shoulderDrop - height);
+}
 
 /** Closest point of a plane's bounds rectangle to (px, pz), world XZ. */
 export function closestPointOnPlane(plane: PlaneCandidate, px: number, pz: number): { x: number; z: number } {
@@ -79,7 +98,10 @@ export function boundsCenter(plane: PlaneCandidate): { x: number; z: number } {
 }
 
 /** Picks the best table for a seated ritual, or null. */
-export function chooseTable(candidates: readonly PlaneCandidate[], head: HeadPose): TableChoice | null {
+export function chooseTable(candidates: readonly PlaneCandidate[], head: HeadPose, opts: { armCheck?: boolean } = {}): TableChoice | null {
+  // The arm check needs the real near edge (planes, volumes). A hit-test surface only knows the nearest point the
+  // probe happened to touch, often well inside the table: it is not checked (29 Oct).
+  const armCheck = opts.armCheck ?? true;
   let best: TableChoice | null = null;
   const fLen = Math.hypot(head.forward.x, head.forward.z) || 1;
   const fx = head.forward.x / fLen;
@@ -102,7 +124,7 @@ export function chooseTable(candidates: readonly PlaneCandidate[], head: HeadPos
     }
     const nearest = closestPointOnPlane(plane, head.position.x, head.position.z);
     const reach = Math.hypot(nearest.x - head.position.x, nearest.z - head.position.z);
-    if (reach > PLACEMENT.maxReach) {
+    if (reach > PLACEMENT.maxReach || (armCheck && armToDesk(height, reach, head) > PLACEMENT.maxArm)) {
       continue;
     }
     const center = boundsCenter(plane);
@@ -161,4 +183,38 @@ export function fallbackFrame(head: HeadPose, layout: DeskLayout): DeskFrame {
   const x = head.position.x + fx * layout.reach;
   const z = head.position.z + fz * layout.reach;
   return { x, y, z, yaw: Math.atan2(head.position.x - x, head.position.z - z) };
+}
+
+/**
+ * 29 Oct (rooms never tested: a low seat at a high table): the table is refused (too close under the eyes) and the
+ * desk floats at a seated height — 24 cm UNDER the real table top in front of you: hands would hit the real table
+ * before reaching a bowl. A floating desk never sinks into a detected surface: if its tray overlaps one whose top is
+ * above the floating height (by less than 40 cm: not a shelf overhead), it rests on that top instead.
+ * `rest` = how high the frame sits above a top when resting on it (tray board + 2 mm, as on a table).
+ */
+export function clearOfSurfaces(frame: DeskFrame, surfaces: readonly PlaneCandidate[], layout: DeskLayout, rest: number): DeskFrame {
+  const c = Math.cos(frame.yaw);
+  const s = Math.sin(frame.yaw);
+  const hw = layout.width / 2;
+  const hd = layout.depth / 2;
+  const footprint = [
+    [0, 0],
+    [-hw, -hd],
+    [hw, -hd],
+    [-hw, hd],
+    [hw, hd],
+  ].map(([lx, lz]) => ({ x: frame.x + lx * c + lz * s, z: frame.z - lx * s + lz * c }));
+  let y = frame.y;
+  for (const plane of surfaces) {
+    const label = plane.label.toLowerCase();
+    if (plane.orientation !== 'horizontal' || label === 'floor' || label === 'ceiling') continue;
+    const top = plane.center.y + rest;
+    if (top <= y || top - frame.y > 0.4) continue;
+    const over = footprint.some((p) => {
+      const q = closestPointOnPlane(plane, p.x, p.z);
+      return Math.hypot(q.x - p.x, q.z - p.z) < 0.005;
+    });
+    if (over) y = top;
+  }
+  return y === frame.y ? frame : { ...frame, y };
 }

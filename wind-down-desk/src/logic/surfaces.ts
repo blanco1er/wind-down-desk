@@ -102,6 +102,7 @@ export function surfaceFromHits(hits: readonly SurfaceHit[], head: HeadPose): Pl
       h.y >= PLACEMENT.minHeight &&
       h.y <= PLACEMENT.maxHeight &&
       head.position.y - h.y >= PLACEMENT.minHeadClearance &&
+      head.position.y - h.y <= PLACEMENT.maxHitDrop &&
       Math.hypot(h.x - head.position.x, h.z - head.position.z) >= HITS.minReach &&
       Math.hypot(h.x - head.position.x, h.z - head.position.z) <= PLACEMENT.maxReach + 0.3,
   );
@@ -188,6 +189,6 @@ export function chooseSurface(
   if (volume != null) return { ...volume, source: 'mesh' };
   const hit = input.hits != null && input.hits.length > 0 ? surfaceFromHits(input.hits, head) : null;
   if (hit == null) return null;
-  const choice = chooseTable([hit], head);
+  const choice = chooseTable([hit], head, { armCheck: false });
   return choice == null ? null : { ...choice, source: 'hit' };
 }

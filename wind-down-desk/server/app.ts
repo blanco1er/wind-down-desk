@@ -157,8 +157,14 @@ export function createApp(options: AppOptions = {}): { server: Server; providers
       }
       const ip = clientIp(req, env);
       const now = Date.now();
+      // 29 Oct: the visit beacons (one per step of an evening) do not share the per-minute bucket of the voice and
+      // the agent: several judges behind one office address would otherwise see their voice refused (429). The
+      // beacons keep their own daily quota (guard 'visit').
+      const counted = url.pathname !== '/api/visit';
       const bucket = hits.get(ip);
-      if (bucket == null || now - bucket.since > RATE_WINDOW_MS) {
+      if (!counted) {
+        // A beacon: its own daily quota only.
+      } else if (bucket == null || now - bucket.since > RATE_WINDOW_MS) {
         hits.set(ip, { count: 1, since: now });
         if (hits.size > 50_000) hits.clear();
       } else if (++bucket.count > RATE_MAX) {

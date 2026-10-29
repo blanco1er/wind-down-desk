@@ -31,7 +31,7 @@ for s in $SHOTS; do
     ev 'await window.__wdd.say("Let it go."); await new Promise(r=>setTimeout(r,1800)); return 1'; shot "$RAW/04-release-sinks.png"; crop 04-release-sinks ;;
   breathe)
     fresh; ev 'await window.__wdd.say("Breathe."); await new Promise(r=>setTimeout(r,10500)); return 1'
-    view '{"fov":44,"aim":[0.0,0.14,-0.05],"back":0.0,"up":0.05}'; shot "$RAW/05-breathe.png"; crop 05-breathe ;;
+    view '{"fov":46,"aim":[0.0,0.14,-0.02],"back":0.0}'; shot "$RAW/05-breathe.png"; crop 05-breathe ;;
   globe)
     # Places open inside the lamp: the globe floats up and becomes a window on a place (the lake first).
     fresh; ev 'await window.__wdd.say("Not now."); await new Promise(r=>setTimeout(r,900)); await window.__wdd.say("Places."); await new Promise(r=>setTimeout(r,3500)); return 1'

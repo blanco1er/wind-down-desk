@@ -249,3 +249,25 @@ test('agent through a fake Gemini (fenced JSON, usage, thought signature) and sp
     await close(groq);
   }
 });
+
+test('29 Oct — visit beacons never use up the per-minute bucket of the voice and the agent (judges behind one office address)', async () => {
+  const own = createApp({ env: { ...siteEnv, WDD_DAILY_VISIT_PER_IP: '1000' }, staticDir: dist });
+  const url = await listen(own.server);
+  try {
+    const headers = { 'x-forwarded-for': '198.51.100.29', 'user-agent': QUEST_UA };
+    // Seventy steps of evenings in one minute (several people at the same address)…
+    for (let i = 0; i < 70; i++) {
+      const r = await fetch(`${url}/api/visit`, { method: 'POST', headers: { ...headers, 'content-type': 'text/plain' }, body: JSON.stringify({ e: 'ritual-start', d: { kind: 'breathe' }, internal: false }) });
+      await r.arrayBuffer();
+      assert.notEqual(r.status, 429, `beacon ${i + 1} refused`);
+    }
+    // …and the voice / agent side still answers.
+    assert.equal((await fetch(`${url}/api/health`, { headers })).status, 200);
+    // The per-minute guard itself is unchanged for the other routes.
+    let last = 0;
+    for (let i = 0; i < 61; i++) last = (await fetch(`${url}/api/health`, { headers })).status;
+    assert.equal(last, 429);
+  } finally {
+    await close(own.server);
+  }
+});

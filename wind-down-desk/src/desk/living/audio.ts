@@ -7,6 +7,7 @@
  * IWSDK does not expose: a playback rate per crackle (pitch variation). Every sound started is written to the app's
  * audio log (performance.now ms) so the demo film can lay the real sound under the picture.
  */
+import { mixLevels } from '../../logic/mix.ts';
 import { AudioLoader, Object3D, PositionalAudio, type World } from '@iwsdk/core';
 
 type Listener = ConstructorParameters<typeof PositionalAudio>[0];
@@ -122,9 +123,11 @@ export class LivingSound {
   /** The loops' level follows the picture's fade (0..1), applied when it changes by ≥ 1 %. */
   setLevel(level: number, loopGain: number[] | null = null): void {
     this.level = level;
-    if (Math.abs(level - this.applied) < 0.01 && !(level === 0 && this.applied !== 0) && loopGain == null) return;
-    this.applied = level;
-    this.loops.forEach((loop, i) => loop.audio?.setVolume(loop.def.volume * level * (loopGain?.[i] ?? 1)));
+    // 28 Oct: the sound's own level (logic/mix.ts) is part of what is applied.
+    const eff = level * mixLevels.sound;
+    if (Math.abs(eff - this.applied) < 0.01 && !(eff === 0 && this.applied !== 0) && loopGain == null) return;
+    this.applied = eff;
+    this.loops.forEach((loop, i) => loop.audio?.setVolume(loop.def.volume * eff * (loopGain?.[i] ?? 1)));
   }
 
   /** Preloads one-shot files (no sound). */
@@ -152,7 +155,7 @@ export class LivingSound {
       shot.updateMatrixWorld();
       shot.setBuffer(buffer);
       shot.setPlaybackRate(rate);
-      shot.setVolume(gain);
+      shot.setVolume(gain * mixLevels.sound);
       shot.play();
       this.log.push({ t: performance.now(), src, volume: +gain.toFixed(3), rate: +rate.toFixed(3) });
       if (this.log.length > 400) this.log.shift();

@@ -9,7 +9,7 @@
  *   palm glow      the moon's warm light on your open hands (two soft billboards)            1 draw call
  *   room dimmer    darkens the room (passthrough or a Place) on the exhale, never the desk   1 draw call
  */
-import { AdditiveBlending, BackSide, ShaderMaterial, Vector2, Vector3, Vector4 } from '@iwsdk/core';
+import { AdditiveBlending, BackSide, NormalBlending, ShaderMaterial, Vector2, Vector3, Vector4 } from '@iwsdk/core';
 import { NOISE, RIG, RIG_UNIFORMS, timeUniform } from './materials.ts';
 import { WATER_BOWL } from '../logic/release.ts';
 
@@ -319,7 +319,9 @@ export function createPalmGlowMaterial(): ShaderMaterial & { uniforms: PalmUnifo
     transparent: true,
     depthWrite: false,
     depthTest: false,
-    blending: AdditiveBlending,
+    // 29 Oct: normal blending: a warm veil that never clips (additive over the light oak saturated red and slid
+    // toward yellow-green around Meta's grey fists).
+    blending: NormalBlending,
     uniforms: { uPalm: { value: [new Vector3(), new Vector3()] }, uStrength: { value: [0, 0] }, uSize: { value: 0.2 } },
     vertexShader: /* glsl */ `
       attribute float aHand;
@@ -344,7 +346,11 @@ export function createPalmGlowMaterial(): ShaderMaterial & { uniforms: PalmUnifo
       void main() {
         float d = length(vUv);
         float a = exp(-d * d * 4.2) * (1.0 - smoothstep(0.85, 1.0, d));
-        gl_FragColor = vec4(vec3(1.0, 0.6, 0.3) * a * vStrength * 0.75, a * vStrength);
+        // 29 Oct: light held inside the hand: a warm white heart and a deep amber glow around it. Added over the oak
+        // or Meta's grey hands it stays warm (the flat orange disc clipped to yellow-green).
+        float core = exp(-d * d * 26.0);
+        vec3 c = mix(vec3(1.0, 0.52, 0.2), vec3(1.0, 0.9, 0.74), core);
+        gl_FragColor = vec4(c, clamp((a * 0.78 + core * 0.55) * vStrength, 0.0, 0.88));
       }
     `,
   });

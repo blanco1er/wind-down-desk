@@ -1,5 +1,5 @@
 // Short film (≈ 16 s), lot 2b: the evening you come back for the 7th time. The desk arrives, the lamp floats up and
-// shows your sky (the last evening's point lights, the figure completes, its lines draw), a small candle arrives on
+// shows your sky (the last evening's point lights, the figure completes, its lines draw), a cup of tea arrives on
 // your table; then the lamp goes home and proposes the evening. Run on the landing page (reloaded).
 //   OUT=artifacts/sky/film node_modules/.bin/iwsdk browser run tools/places/sky-film.mjs --timeout 100000
 //   sh tools/frames-to-video.sh artifacts/sky/progress-in-the-lamp.mp4 artifacts/sky/film

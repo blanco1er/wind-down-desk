@@ -49,7 +49,9 @@ export class PerfBeginSystem extends createSystem({}) {
   init(): void {
     const renderer = this.renderer;
     const original = renderer.render.bind(renderer);
+    let lastScene: { getObjectByName(name: string): { visible: boolean } | undefined } | null = null;
     renderer.render = (scene, camera) => {
+      lastScene = scene;
       const t0 = performance.now();
       original(scene, camera);
       lastRenderMs = performance.now() - t0;
@@ -74,6 +76,12 @@ export class PerfBeginSystem extends createSystem({}) {
         xr: renderer.xr.isPresenting,
         longFrames: longFrames.slice(),
       }),
+      /** 28 Oct (A/B in the same page): show / hide a named object (e.g. 'wdd-lamp-globe', 'wdd-keepsakes'). */
+      perfShow: (name: string, on: boolean) => {
+        const o = lastScene?.getObjectByName(name);
+        if (o != null) o.visible = on;
+        return o != null;
+      },
       perfReset: () => {
         [frame, update, render, calls, triangles, cpu].forEach((r) => r.reset());
         longFrames.length = 0;

@@ -33,6 +33,11 @@ export interface NightRecord {
   breaths?: number;
   /** What sank in the black bowl (Release, v6). Each one is also a star. */
   sunk?: string[];
+  /** 28 Oct: how heavy the evening felt (0 light … 10 heavy), when it started and before Good night. */
+  tensionIn?: number;
+  tensionOut?: number;
+  /** 28 Oct: the good things kept tonight (Keep): each one a warm light that stays in the room. */
+  kept?: string[];
 }
 
 export interface Star {
@@ -223,6 +228,48 @@ export class RitualMemory {
     return night;
   }
 
+  /** 28 Oct: how heavy tonight felt, on arrival ('in') or before Good night ('out'); 0..10, rounded. */
+  recordTension(side: 'in' | 'out', value: number): NightRecord {
+    const night = this.tonight();
+    const v = Math.round(Math.min(10, Math.max(0, value)));
+    if (side === 'in') night.tensionIn = v;
+    else night.tensionOut = v;
+    this.save();
+    return night;
+  }
+
+  /** 29 Oct: tonight's evening date (the key of tonight's record), on this memory's clock. */
+  tonightDate(): string {
+    return eveningDate(this.now());
+  }
+
+  /** Tonight's record as saved so far (a copy), or null before anything was saved tonight. */
+  tonightRecord(): NightRecord | null {
+    const night = this.data.nights.find((n) => n.date === eveningDate(this.now()));
+    return night == null ? null : (JSON.parse(JSON.stringify(night)) as NightRecord);
+  }
+
+  /** 28 Oct (Keep): a good thing of today, kept as a light in the room. Duplicates within an evening are ignored. */
+  recordKept(text: string): NightRecord {
+    const night = this.tonight();
+    const t = text.trim();
+    if (t.length > 0 && !(night.kept ?? []).some((k) => same(k, t))) night.kept = [...(night.kept ?? []), t];
+    this.save();
+    return night;
+  }
+
+  /** The good things kept on recent evenings, oldest first (at most `max`): the warm lights of the room. */
+  keptLights(max = 36): Array<{ text: string; date: string; seed: number }> {
+    const out: Array<{ text: string; date: string; seed: number }> = [];
+    for (const n of this.data.nights) for (const text of n.kept ?? []) out.push({ text, date: n.date, seed: hash32(`kept|${n.date}|${text}`) });
+    return out.slice(-max);
+  }
+
+  /** Every evening kept on this device, oldest first (copies): the journal reads them. */
+  nights(): NightRecord[] {
+    return JSON.parse(JSON.stringify(this.data.nights)) as NightRecord[];
+  }
+
   /** Rituals already completed tonight (unique, in first-done order). */
   /** Bumped at every save: caches below know the data changed. */
   private version = 0;
@@ -336,6 +383,9 @@ export class RitualMemory {
     const done = this.data.done ?? [];
     const out: string[] = [];
     const nights = this.data.nights.filter((n) => n.date !== today && todayIndex - dayIndex(n.date) <= 14);
+    // 29 Oct (back in XR the same evening): what was already sorted TONIGHT is tonight's, not a question to ask.
+    const tonight = this.data.nights.find((n) => n.date === today);
+    const sortedTonight = tonight == null ? [] : [...tonight.tomorrow, ...tonight.later, ...tonight.letGo, ...(tonight.sunk ?? [])];
     for (let i = nights.length - 1; i >= 0 && out.length < max; i--) {
       const night = nights[i];
       const later = nights.slice(i + 1);
@@ -344,6 +394,7 @@ export class RitualMemory {
         if (out.some((t) => same(t, text))) continue;
         if (done.some((d) => same(d.text, text))) continue;
         if (later.some((n) => [...n.tomorrow, ...n.later, ...n.letGo, ...(n.sunk ?? [])].some((t) => same(t, text)))) continue;
+        if (sortedTonight.some((t) => same(t, text))) continue;
         out.push(text);
       }
     }

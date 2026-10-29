@@ -10,7 +10,10 @@ export const EVENING_STAGE: Record<EveningMode, number> = {
   arrive: 0.12,
   choose: 0.15,
   unload: 0.32,
+  // 28 Oct: three good things (a warm moment, still early) and the body softening (close to Breathe).
+  keep: 0.42,
   release: 0.52,
+  squeeze: 0.6,
   // Talk it through: a quiet place, lights low (between Release and Breathe).
   talk: 0.58,
   breathe: 0.66,

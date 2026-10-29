@@ -9,11 +9,15 @@
  *   - when you look at it, they turn toward you a little more.
  * 70 % of the motes form a luminous shell hugging the globe, 30 % wander further out. The globe's own inner filaments
  * and its warm heart (materials.ts createOrbMaterial) complete the character.
+ *
+ * 29 Oct (owner: "still glitter in close-up"): 320 → 120 motes, finer (≈ 0.7 ×), three times slower, a slow soft
+ * shimmer instead of a twinkle, and dimmer at rest. The reactions are unchanged in kind (they lean, gather, speed up
+ * and ripple exactly as before); only their tempo follows the calmer rest.
  */
 import { AdditiveBlending, BufferAttribute, BufferGeometry, Mesh, ShaderMaterial, Vector3 } from '@iwsdk/core';
 import { timeUniform } from './materials.ts';
 
-const MOTES = 320;
+const MOTES = 120;
 /** The halo quad's size relative to the globe radius (was the separate glow mesh: 7.5 × globe). */
 const HALO = 7.5;
 
@@ -115,7 +119,7 @@ export class LampSpirit {
           bool shell = aSeed.y < 0.7;
           float r = ${R} * (shell ? 1.12 + aSeed.y * 0.55 : 1.6 + (aSeed.y - 0.7) * 5.0);
           float dir = aSeed.z > 0.5 ? 1.0 : -1.0;
-          float a = ph + uTime * (0.1 + aSeed.z * 0.22) * (1.0 + 2.4 * uThink) * dir;
+          float a = ph + uTime * (0.035 + aSeed.z * 0.075) * (1.0 + 3.2 * uThink) * dir;
           // Shell motes cover the sphere evenly (latitude from the seed); wanderers keep to looser rings.
           float lat = shell ? asin(aSeed.w * 2.0 - 1.0) : (aSeed.w - 0.5) * 1.1;
           vec3 p = shell ? vec3(cos(a) * cos(lat), sin(lat) + 0.08 * sin(a * 0.5 + ph), sin(a) * cos(lat)) : vec3(cos(a), lat + 0.3 * sin(a * 0.5 + ph), sin(a));
@@ -131,13 +135,14 @@ export class LampSpirit {
           p = mix(p, p * 0.72 + toYou * r * 0.5, clamp(uListen * 0.65 + uLookK * 0.25, 0.0, 0.85));
           // It thinks: closer, faster.
           p *= 1.0 - 0.18 * uThink;
-          p.y += 0.004 * sin(uTime * 0.7 + ph * 3.0) + 0.006;
+          p.y += 0.004 * sin(uTime * 0.35 + ph * 3.0) + 0.006;
           vec4 mv = modelViewMatrix * vec4(p, 1.0);
-          float size = (shell ? 0.00045 + 0.00035 * fract(aSeed.x * 7.13) : 0.00055 + 0.0006 * fract(aSeed.x * 7.13)) * (1.0 + 0.6 * uSpeak + 0.3 * uListen);
+          float size = (shell ? 0.0003 + 0.00022 * fract(aSeed.x * 7.13) : 0.00036 + 0.00034 * fract(aSeed.x * 7.13)) * (1.0 + 0.6 * uSpeak + 0.3 * uListen);
           mv.xy += aCorner * size * scale;
           gl_Position = projectionMatrix * mv;
-          float twinkle = 0.55 + 0.45 * sin(uTime * (1.1 + aSeed.z * 1.7) + ph * 5.0);
-          vA = uAlpha * twinkle * (0.32 + 0.35 * uEnergy + 0.8 * uSpeak + 0.55 * uListen + 0.3 * uThink) * (shell ? 0.75 : 0.55);
+          // A slow soft shimmer (≈ 0.1–0.25 Hz), never a sparkle.
+          float twinkle = 0.72 + 0.28 * sin(uTime * (0.6 + aSeed.z * 0.9) + ph * 5.0);
+          vA = uAlpha * twinkle * (0.26 + 0.28 * uEnergy + 0.8 * uSpeak + 0.55 * uListen + 0.3 * uThink) * (shell ? 0.7 : 0.5);
           vWarm = shell ? 0.25 + 0.3 * aSeed.y : 0.8;
         }
       `,
@@ -155,7 +160,7 @@ export class LampSpirit {
             gl_FragColor = vec4(vec3(1.0, 0.690, 0.4) * g * uHalo, g * uHalo);
             return;
           }
-          float a = pow(max(1.0 - d, 0.0), 1.8) * vA;
+          float a = exp(-d * d * 4.0) * (1.0 - smoothstep(0.7, 1.0, d)) * vA;
           if (a < 0.004) discard;
           gl_FragColor = vec4(mix(vec3(1.0, 0.93, 0.8), vec3(1.0, 0.7, 0.4), vWarm), a);
         }

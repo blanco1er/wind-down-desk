@@ -381,6 +381,69 @@ const sounds = {};
   sounds.drip = normalize(loop, 0.6);
 }
 
+// ------------------------------------------------------------------ 28 Oct: the product pass
+// (appended after every older sound: the seeded noise of the sounds above is unchanged.)
+
+// Tick: the glass bead passes a mark on the brass rail (very soft, high, short).
+{
+  const b = buffer(0.35);
+  partial(b, { freq: 3135.96, amp: 0.22, decay: 0.018, attack: 0.0008 });
+  partial(b, { freq: 1567.98, amp: 0.12, decay: 0.03, attack: 0.001 });
+  noise(b, { amp: 0.04, length: 0.006, lowpass: 0.6, env: (k) => 1 - k });
+  sounds.tick = fadeOut(normalize(reverb(b, { mix: 0.2, tail: 0.2 }), 0.45), 0.08);
+}
+
+// Gather (5 s): the lamp's light drawn into closing fists: a low hum that tightens and rises a fifth, warm air.
+{
+  const L = 5.0;
+  const b = buffer(L + 0.3);
+  noise(b, { amp: 0.16, length: L, lowpass: (t) => 0.01 + (t / L) * 0.05, highpass: 0.4, env: (k) => Math.min(1, k * 3) * (k > 0.92 ? (1 - k) / 0.08 : 1) });
+  for (const [f, a, g] of [[146.83, 0.2, 1.5], [220, 0.12, 1.5], [293.66, 0.05, 1.5]]) {
+    let phase = 0;
+    for (let n = 0; n < Math.round(L * SR); n++) {
+      const t = n / SR;
+      const k = t / L;
+      const env = Math.min(1, k * 2.5) * (k > 0.92 ? (1 - k) / 0.08 : 1) * (0.6 + 0.4 * k);
+      phase += (2 * Math.PI * f * (1 + (g - 1) * 0.02 * k) * (1 + 0.003 * Math.sin(2 * Math.PI * (3 + 4 * k) * t))) / SR;
+      b[n] += Math.sin(phase) * a * env;
+    }
+  }
+  sounds.gather = fadeOut(normalize(reverb(b, { mix: 0.35, room: 0.84, tail: 0.8 }), 0.4), 0.3);
+}
+
+// Burst: the fists open and the light escapes: a warm breath outward and a spray of soft glass grains.
+{
+  const b = buffer(3.2);
+  noise(b, { amp: 0.32, length: 1.6, lowpass: (t) => 0.22 - Math.min(0.2, t * 0.14), highpass: 0.45, env: (k) => Math.min(1, k * 30) * (1 - k) ** 2.2 });
+  partial(b, { freq: 196, amp: 0.26, decay: 0.9, attack: 0.02 });
+  partial(b, { freq: 293.66, amp: 0.12, decay: 0.8, attack: 0.03 });
+  for (let i = 0; i < 14; i++) {
+    const f = 1400 + rand() * 2600;
+    partial(b, { freq: f, amp: 0.05 + rand() * 0.04, start: 0.05 + i * 0.06 + rand() * 0.05, attack: 0.002, decay: 0.12 + rand() * 0.2 });
+  }
+  sounds.burst = fadeOut(normalize(reverb(b, { mix: 0.45, room: 0.86, tail: 1.5 }), 0.55), 0.6);
+}
+
+// Keep: a good thing becomes a warm light (a low amber bell and a rising third, like a held breath let out).
+{
+  const b = buffer(3.0);
+  partial(b, { freq: 392, amp: 0.4, decay: 1.1, attack: 0.01 });
+  partial(b, { freq: 493.88, amp: 0.24, decay: 0.9, attack: 0.02, start: 0.09 });
+  partial(b, { freq: 587.33, amp: 0.16, decay: 0.8, attack: 0.02, start: 0.18 });
+  partial(b, { freq: 392 * 2.76, amp: 0.04, decay: 0.2 });
+  partial(b, { freq: 196, amp: 0.16, decay: 1.3, attack: 0.15 });
+  sounds.keep = fadeOut(normalize(reverb(b, { mix: 0.42, room: 0.86, tail: 1.6 }), 0.6), 0.6);
+}
+
+// Ascend (7 s): the stars leave the lamp for the ceiling: a slow shimmer climbing over a deep warm chord.
+{
+  const b = buffer(7.5);
+  [110, 164.81, 220].forEach((f, i) => partial(b, { freq: f, amp: 0.18 - i * 0.04, start: i * 0.2, attack: 1.2, decay: 2.6, vibrato: 0.0015, vibRate: 0.5 + i * 0.2 }));
+  const notes = [987.77, 1174.66, 1318.51, 1567.98, 1760, 1975.53, 2349.32, 2637.02, 3135.96];
+  notes.forEach((f, i) => partial(b, { freq: f, amp: 0.07 - i * 0.004, start: 0.6 + i * 0.55, attack: 0.08, decay: 1.1, vibrato: 0.002, vibRate: 3 + i * 0.4 }));
+  sounds.ascend = fadeOut(normalize(reverb(b, { mix: 0.5, room: 0.9, tail: 2.2 }), 0.55), 1.5);
+}
+
 /** Loops ship as Ogg Opus: gapless in Chromium (the Quest browser), unlike mp3's encoder padding. */
 function writeOgg(name, buf, bitrate = '40k') {
   const wav = join(TMP, `${name}.wav`);

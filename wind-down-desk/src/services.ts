@@ -5,6 +5,7 @@ import { AgentClient } from './agent-client.ts';
 import { ACCESS_KEY, parseAccess, type AccessPrefs } from './logic/access.ts';
 import { RitualMemory, type KeyValueStore } from './logic/memory.ts';
 import { readStyle, writeStyle, type EveningStyle } from './logic/style.ts';
+import { applyMix, MIX_KEY, mixLevels, parseMix, type MixPrefs } from './logic/mix.ts';
 import { VoiceInput } from './voice/mic.ts';
 
 let probed: { store: KeyValueStore | null } | null = null;
@@ -74,6 +75,35 @@ export const services = {
       accessListeners.push(listener);
     },
   },
+  /**
+   * 28 Oct — the voice and the sound, apart (logic/mix.ts): saved in this browser, read live by every sound source
+   * through `mixLevels`.
+   */
+  mix: {
+    get(): MixPrefs {
+      return parseMix(safeStorage()?.getItem(MIX_KEY) ?? null);
+    },
+    set(change: Partial<MixPrefs>): MixPrefs {
+      const next = applyMix(services.mix.get(), change);
+      try {
+        safeStorage()?.setItem(MIX_KEY, JSON.stringify(next));
+      } catch {
+        // Private window: the mix lasts for this visit only.
+      }
+      Object.assign(mixLevels, next);
+      for (const listener of mixListeners) listener(next);
+      return next;
+    },
+    onChange(listener: (prefs: MixPrefs) => void): void {
+      mixListeners.push(listener);
+    },
+  },
 };
+const mixListeners: Array<(prefs: MixPrefs) => void> = [];
+try {
+  Object.assign(mixLevels, services.mix.get());
+} catch {
+  // No storage: the default mix.
+}
 const styleListeners: Array<(style: EveningStyle) => void> = [];
 const accessListeners: Array<(prefs: AccessPrefs) => void> = [];

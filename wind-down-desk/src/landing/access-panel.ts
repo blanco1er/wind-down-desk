@@ -33,8 +33,23 @@ export function mountAccessPanel(): void {
       track('access', { setting: `${SETTING[key]}:${input.checked ? 'on' : 'off'}`, via: 'button' });
     });
   }
+  // 28 Oct: the lamp's voice and the ambience, apart (logic/mix.ts).
+  const sliders = Array.from(dialog.querySelectorAll<HTMLInputElement>('input[data-mix]'));
+  const syncMix = () => {
+    const mix = services.mix.get();
+    for (const s of sliders) s.value = String(Math.round(mix[s.dataset.mix as 'voice' | 'sound'] * 100));
+  };
+  services.mix.onChange(syncMix);
+  for (const s of sliders) {
+    s.addEventListener('change', () => {
+      const key = s.dataset.mix as 'voice' | 'sound';
+      services.mix.set({ [key]: Number(s.value) / 100 });
+      track('mix', { setting: `${key}:set`, via: 'page' });
+    });
+  }
   open.addEventListener('click', () => {
     sync(services.access.get());
+    syncMix();
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
   });

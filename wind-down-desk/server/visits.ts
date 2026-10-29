@@ -66,6 +66,18 @@ export const EVENTS: Record<string, readonly string[]> = {
   input: ['kind'],
   /** 26 Oct: speech could not be turned into text (failed / no-server): the hands took over. */
   'voice-down': ['why'],
+  /**
+   * 28 Oct (product pass): the bead answered (in / out, by hand / voice / touch, or skipped — never the value), the
+   * fists of Squeeze (followed or not), a good thing kept (how, never its words), the journal (open, step), the stars
+   * on the ceiling (ceiling / dome), "stay till I sleep" (minutes, how it ended), the voice / sound mix.
+   */
+  tension: ['side', 'via'],
+  squeeze: ['event'],
+  kept: ['via'],
+  journal: ['step'],
+  ceiling: ['source'],
+  sleep: ['event', 'minutes'],
+  mix: ['setting', 'via'],
   leave: ['secs', 'step'],
 };
 

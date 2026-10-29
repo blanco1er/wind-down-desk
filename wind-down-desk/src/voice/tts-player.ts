@@ -20,6 +20,8 @@ export class TtsPlayer {
   level = 0;
   private readonly ctx: AudioContext;
   private readonly gain: GainNode;
+  /** 28 Oct: the voice's level from the mix, after the analyser (the lamp's glow keeps following the words). */
+  private readonly vol: GainNode;
   private readonly panner: PannerNode;
   private readonly analyser: AnalyserNode;
   private readonly wave: Float32Array<ArrayBuffer>;
@@ -44,9 +46,16 @@ export class TtsPlayer {
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 512;
     this.wave = new Float32Array(this.analyser.fftSize);
-    this.gain.connect(this.panner);
+    this.vol = ctx.createGain();
+    this.gain.connect(this.vol);
+    this.vol.connect(this.panner);
     this.panner.connect(destination);
     this.gain.connect(this.analyser);
+  }
+
+  /** The voice's level (logic/mix.ts), 0..1. */
+  setVolume(v: number): void {
+    this.vol.gain.setTargetAtTime(Math.min(1, Math.max(0, v)), this.ctx.currentTime, 0.05);
   }
 
   /** The lamp's world position (call every frame while speaking; the listener follows the head). */
