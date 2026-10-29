@@ -485,7 +485,11 @@ export class RitualMemory {
       const rituals: RitualKind[] = ['unload'];
       if (k % 2 === 0) rituals.push('breathe');
       if (k % 5 === 0) rituals.push('release');
-      data.nights.push({ date, tomorrow: [], later: [], letGo, plan: [], planKept: true, rituals, breaths: rituals.includes('breathe') ? 6 : 0 });
+      // 29 Oct (film v10, Your sky as a memory world): two evenings in three also kept one or two good things, so
+      // the crown shows weeks of them (the most recent one most often comes back: "Someone kind").
+      const kept = k % 3 === 0 ? [] : Array.from({ length: k % 4 === 0 ? 2 : 1 }, (_, i) => DEMO_KEPT[(k * 5 + i * 3) % DEMO_KEPT.length]);
+      if (kept.length > 0) rituals.push('keep');
+      data.nights.push({ date, tomorrow: [], later: [], letGo, kept, plan: [], planKept: true, rituals, breaths: rituals.includes('breathe') ? 6 : 0 });
       letGo.forEach((text, i) => data.stars.push({ text, date, seed: hash32(`${date}|${text}|${data.stars.length + i}`) }));
     }
     data.morningSeen = null;
@@ -513,6 +517,9 @@ export class RitualMemory {
     return `Evening ${nights + 1} at your desk.${sky}`;
   }
 }
+
+/** Good things kept in a demo history (film only): the Keep ritual's own touch words. */
+export const DEMO_KEPT = ['Someone kind', 'A good meal', 'Time outside', 'A laugh', 'Music', 'A small win', 'Rest', 'Something I made'] as const;
 
 /** Worries used to seed a demo history (film only). */
 export const DEMO_LET_GO = [

@@ -39,6 +39,7 @@ import { createDeskLayout, binById, BIN_IDS, BIN_STONE_SCALE, classifyDrop, desk
 import { easeToward, GAZE, gazeAngle, GazeFocus, gazePick, type GazeTarget } from '../logic/gaze.ts';
 import { accessLine, DWELL_SELECT, parseAccessCommand, type AccessPrefs } from '../logic/access.ts';
 import { answerOf, isForgetCommand } from '../logic/recall.ts';
+import { PressGate } from '../logic/press-gate.ts';
 import { bubbleLines, DONE_BUBBLE, hesitation } from '../logic/bubbles.ts';
 import { TtsPlayer } from '../voice/tts-player.ts';
 import { benchBackdrop } from '../desk/backdrop-bench.ts';
@@ -327,6 +328,9 @@ export class RitualSystem extends createSystem({
   private readonly btnAction = new Map<string, string>();
   private chosenAt = 0;
   private readonly onSelect = (e: XRInputSourceEvent) => this.onSelectStart(e.inputSource);
+  private readonly rayDir = new Vector3();
+  /** Distance of the last button hit by pickButtonOnRay (Infinity: none). */
+  private pickDistance = Infinity;
   private selectSession: XRSession | null = null;
   private readonly gazeDir: Vec3 = { x: 0, y: 0, z: -1 };
   private readonly gazePool: GazeTarget[] = [];
@@ -390,6 +394,8 @@ export class RitualSystem extends createSystem({
   private setRays(on: boolean): void {
     const pointers = (this.world.input as unknown as { xr?: { multiPointers?: Record<'left' | 'right', { toggleSubPointer(kind: string, enabled: boolean): boolean }> } }).xr?.multiPointers;
     if (pointers == null) return;
+    // 29 Oct (robustness): with controllers the ray IS the way to press "Enough" / "Finish" — never taken away.
+    if (!on && this.controllersInHand()) return;
     for (const side of ['left', 'right'] as const) {
       try {
         pointers[side]?.toggleSubPointer('ray', on);
@@ -452,6 +458,9 @@ export class RitualSystem extends createSystem({
   private globeNavAt = -1e9;
   /** When an answer button or a word was last really pressed (one touch never answers twice). */
   private answerPressAt = -1e9;
+  private readonly pressGate = new PressGate();
+  /** Touches the press gate recognised as the same touch again (tests read it). */
+  private pressGated = 0;
   /** The arrival bead was offered on this page already (a second XR entry does not ask it again). */
   private arrivalBeadAsked = false;
   /** 29 Oct: this desk session's evening (date, Good night reached, stones placed) — a finished one starts fresh. */
@@ -604,6 +613,11 @@ export class RitualSystem extends createSystem({
       // 29 Oct (found by emulated hands): the answer buttons and the words change meaning under the finger ("Keep
       // this plan" becomes "Yes" a moment later, a new word slides into place): one touch fired twice and started
       // a ritual nobody chose. A second answer / word press within 0.5 s of the last one is that same touch.
+      // 29 Oct (robustness): a fingertip shaking on any button is one touch (logic/press-gate.ts).
+      if (!this.pressGate.allow(action, this.elapsed)) {
+        this.pressGated++;
+        return;
+      }
       if (isAnswerAction(action)) {
         if (this.elapsed - this.answerPressAt < ANSWER_DEBOUNCE_S) return;
         this.answerPressAt = this.elapsed;
@@ -1057,6 +1071,26 @@ export class RitualSystem extends createSystem({
    * IWSDK's own input), said once. Nothing at all → gaze-only selection turns on, and the lamp says how to go on
    * (look and wait, or speak). Counted anonymously (hands / controllers / none).
    */
+  /**
+   * 29 Oct (robustness): the example stone's line says the gesture this person actually has — measured in a session
+   * without hand tracking: gaze selection turned on, yet the lamp still said "Pinch it".
+   */
+  private exampleLine(): string {
+    const session = this.renderer.xr.getSession();
+    const sources = session == null ? [] : [...session.inputSources];
+    if (sources.some((s) => s.hand != null)) return 'An example. Pinch it, drop it in a bowl.';
+    if (this.controllersInHand()) return 'An example. Point at it and pull, then at a bowl.';
+    if (this.access.gazeSelect) return 'An example. Look at it, then at a bowl.';
+    return 'An example. Pinch it, drop it in a bowl.';
+  }
+
+  /** Controllers in use (tracked pointers with a gamepad, no hand). */
+  private controllersInHand(): boolean {
+    const session = this.renderer.xr.getSession();
+    if (session == null) return false;
+    return [...session.inputSources].some((s) => s.hand == null && s.gamepad != null && s.targetRayMode === 'tracked-pointer');
+  }
+
   private checkInputs(): void {
     const session = this.renderer.xr.getSession();
     if (session == null) return;
@@ -1067,7 +1101,7 @@ export class RitualSystem extends createSystem({
     track('input', { kind }, `input:${kind}`);
     if (hands) return;
     if (controllers) {
-      this.flash('Your controllers work too: point, and pull the trigger.', 5);
+      this.flash('Your controllers work too: point, and pull the trigger.', 6, 'A stone: point at it, pull, then point at a bowl and pull.');
       return;
     }
     if (!this.access.gazeSelect) {
@@ -2068,8 +2102,14 @@ export class RitualSystem extends createSystem({
   /** The nearest shown, pointable glass button (or the lamp while Places is open) on the camera ray through `ndc`. */
   private pickButtonAt(ndcX: number, ndcY: number): string | null {
     this.pickRay.setFromCamera(this.pickNdc.set(ndcX, ndcY), this.world.camera);
+    return this.pickButtonOnRay();
+  }
+
+  /** The nearest shown, pointable glass button on `pickRay` as it is set now. */
+  private pickButtonOnRay(): string | null {
     let best: string | null = null;
     let bestD = Infinity;
+    this.pickDistance = Infinity;
     for (const e of this.queries.buttons.entities) {
       if (!e.hasComponent(RayInteractable)) continue;
       const o = e.object3D as (Mesh & { pointerEvents?: string }) | undefined;
@@ -2085,6 +2125,7 @@ export class RitualSystem extends createSystem({
         best = String(e.getValue(DeskButton, 'action'));
       }
     }
+    this.pickDistance = bestD;
     return best;
   }
 
@@ -4238,7 +4279,63 @@ export class RitualSystem extends createSystem({
    * choose it; look at a bowl and pinch to place it there. A pinch near a stone stays a normal grab; a pinch on a
    * glass button stays a button.
    */
+  /** What a controller's ray points at (an unsorted stone, or a bowl once a stone is chosen), within a few degrees. */
+  private rayPick(side: 'left' | 'right'): string | null {
+    if (this.frame == null) return null;
+    const space = this.player.raySpaces[side];
+    space.getWorldPosition(this.v2);
+    space.getWorldDirection(this.rayDir).negate();
+    const targets: GazeTarget[] = [];
+    for (const stone of this.stones.values()) {
+      const t = this.session.get(stone.id);
+      if (t != null && t.bin == null && !t.released && stone.dissolving < 0) targets.push({ id: stone.id, x: stone.mesh.position.x, y: stone.mesh.position.y, z: stone.mesh.position.z });
+    }
+    if (this.chosenId != null) {
+      for (let i = 0; i < BIN_IDS.length; i++) {
+        const bin = this.layout.bins[i];
+        this.local.x = bin.x;
+        this.local.y = 0.03;
+        this.local.z = bin.z;
+        deskToWorld(this.frame, this.local, this.world3);
+        targets.push({ id: BIN_GAZE_IDS[i], x: this.world3.x, y: this.world3.y, z: this.world3.z });
+      }
+    }
+    return gazePick(this.v2, this.rayDir, targets, 9);
+  }
+
+  /**
+   * 29 Oct (robustness, measured in the emulator: with controllers, "Keep this plan" and "Lights out" lit up under
+   * the ray yet a trigger pull pressed nothing). A controller's pull also resolves its OWN ray here and presses the
+   * button it hits, through the same gates as any touch (logic/press-gate.ts, the answers' debounce) — so if the
+   * library presses it too, it is still one press.
+   */
+  private controllerPress(side: 'left' | 'right'): boolean {
+    const space = this.player.raySpaces[side];
+    space.getWorldPosition(this.v2);
+    space.getWorldDirection(this.rayDir).negate();
+    this.pickRay.set(this.v2, this.rayDir);
+    const action = this.pickButtonOnRay();
+    if (action == null) return false;
+    // A stone (or a bowl, a stone chosen) aimed at in front of that button: the pull is for the stone.
+    if (this.mode === 'unload' && (this.ritual.phase === 'dump' || this.ritual.phase === 'sort')) {
+      const aimed = this.rayPick(side);
+      const at = aimed == null ? null : aimed.startsWith('bin:') ? null : this.stones.get(aimed)?.mesh.position;
+      if (aimed != null && (at == null || at.distanceTo(this.v2) < this.pickDistance)) return false;
+    }
+    if (!this.pressGate.allow(action, this.elapsed)) return true;
+    if (isAnswerAction(action)) {
+      if (this.elapsed - this.answerPressAt < ANSWER_DEBOUNCE_S) return true;
+      this.answerPressAt = this.elapsed;
+    }
+    this.pressCount++;
+    this.pressLog.push(action);
+    if (this.pressLog.length > 40) this.pressLog.shift();
+    this.onButton(action);
+    return true;
+  }
+
   private onSelectStart(source: XRInputSource): void {
+    if (source.hand == null && source.gamepad != null && this.controllerPress(source.handedness === 'left' ? 'left' : 'right')) return;
     // 28 Oct (the journal): look at a star and pinch: it tells you what it was.
     const focusedStar = this.gazeFocus.focused;
     if ((this.journal != null || this.memoryWorld != null) && focusedStar != null && focusedStar.startsWith('star:')) {
@@ -4256,21 +4353,33 @@ export class RitualSystem extends createSystem({
       return;
     }
     if (this.mode !== 'unload' || (this.ritual.phase !== 'dump' && this.ritual.phase !== 'sort')) return;
-    if (this.queries.held.entities.size > 0 || this.queries.hovered.entities.size > 0) return;
+    if (this.queries.held.entities.size > 0) return;
     const side = source.handedness === 'left' ? 'left' : 'right';
-    this.player.indexTipSpaces[side].getWorldPosition(this.v2);
-    for (const stone of this.stones.values()) {
-      if (stone.mesh.position.distanceTo(this.v2) < 0.09) return;
+    // 29 Oct (robustness, measured in the emulator: with controllers no stone could be grabbed, pointed at or moved —
+    // the evening stopped at the first stone). A controller chooses with its RAY: point at a stone, pull the trigger,
+    // point at a bowl, pull again. Hands keep "look and pinch" (and a pinch on a stone is a grab, not a choice).
+    const controller = source.hand == null;
+    const aimed = controller ? this.rayPick(side) : null;
+    // A glass button under a ray is a button press — unless THIS controller points at a stone or a bowl (the other
+    // controller, resting, often lies on a button: measured, its ray sat on Mixed | Full and every pull was ignored).
+    if (this.queries.hovered.entities.size > 0 && aimed == null) return;
+    if (!controller) {
+      this.player.indexTipSpaces[side].getWorldPosition(this.v2);
+      for (const stone of this.stones.values()) {
+        if (stone.mesh.position.distanceTo(this.v2) < 0.09) return;
+      }
     }
+    const binIndex = controller ? (aimed?.startsWith('bin:') ? BIN_GAZE_IDS.indexOf(aimed) : -1) : this.gazedBin;
+    const stoneId = controller ? (aimed != null && !aimed.startsWith('bin:') ? aimed : null) : this.gazedId;
     this.lastActivity = this.elapsed;
-    if (this.chosenId != null && this.gazedBin >= 0) {
+    if (this.chosenId != null && binIndex >= 0) {
       const id = this.chosenId;
       this.chosenId = null;
-      track('look-pinch', { bin: BIN_IDS[this.gazedBin] }, 'look-pinch');
-      this.place(id, BIN_IDS[this.gazedBin], 'hand');
+      track('look-pinch', { bin: BIN_IDS[binIndex] }, controller ? 'ray-trigger' : 'look-pinch');
+      this.place(id, BIN_IDS[binIndex], 'hand');
       return;
     }
-    const token = this.gazedId != null ? this.session.get(this.gazedId) : undefined;
+    const token = stoneId != null ? this.session.get(stoneId) : undefined;
     if (token != null && token.bin == null && !token.released) {
       this.chosenId = token.id;
       this.chosenAt = this.elapsed;
@@ -4354,7 +4463,7 @@ export class RitualSystem extends createSystem({
       this.exampleShown = true;
       if (this.spawnStone(EXAMPLE_STONE, 0, 'example') != null) {
         this.event({ type: 'tokens-added', count: 1 });
-        this.flash('An example. Pinch it, drop it in a bowl.', 6, '', false);
+        this.flash(this.exampleLine(), 6, '', false);
       }
       this.lastActivity = this.elapsed;
     }
@@ -5336,6 +5445,8 @@ export class RitualSystem extends createSystem({
         return deskToWorld(this.frame, { x: def.x, y: 0.03, z: def.z });
       },
       press: (action: string) => this.onButton(action),
+      /** 29 Oct (robustness tests): the pointer rays on / off, as a ritual would set them. */
+      rays: (on: boolean) => this.setRays(on),
       /**
        * 29 Oct (computer preview, owner: "the buttons don't work"): the visible glass button under a screen point
        * (NDC), raycast NOW from the camera. The pointer library resolves a click on the last frame's hover — at
@@ -5620,7 +5731,7 @@ export class RitualSystem extends createSystem({
       },
       tips: () => ({ ...this.lastTips }),
       /** 29 Oct (solidity tests): how many real presses (fingertip or ray) so far, and the last ones (oldest first). */
-      presses: () => ({ count: this.pressCount, last: this.pressLog.slice() }),
+      presses: () => ({ count: this.pressCount, last: this.pressLog.slice(), gated: this.pressGated }),
       /** 29 Oct (solidity, emulated hands): the index fingertip now (world), whatever the ritual. */
       tipWorld: (side: 'left' | 'right') => {
         const p = this.player.indexTipSpaces[side].getWorldPosition(this.tipTmp);

@@ -75,6 +75,8 @@ const LOOK_LIMIT = { yaw: 0.85, up: 0.55, down: 0.3 };
 const REST: Record<'left' | 'right', V3> = { left: { x: -0.2, y: 0.02, z: 0.5 }, right: { x: 0.2, y: 0.02, z: 0.5 } };
 
 export interface PlayerApi {
+  /** 29 Oct (robustness tests): leave the controllers' / hands' rays alone (the mouse normally replaces them). */
+  keepRays: boolean;
   readonly holding: string | null;
   readonly busy: boolean;
   /** Screen position (CSS px) of a world point, from the player camera. */
@@ -358,6 +360,7 @@ export function mountPlayer(world: World): PlayerApi | null {
   let busy = false;
   let lastStatus = '';
   const api: PlayerApi = {
+    keepRays: false,
     get holding() {
       return holding;
     },
@@ -649,7 +652,7 @@ export function mountPlayer(world: World): PlayerApi | null {
         for (const m of handMeshes) if (m.visible !== shown) m.visible = shown;
       }
       // The mouse is the pointer here: hand rays (and their cursor dots) stay off, even after a ritual turns them on.
-      if (now - rays > 500) {
+      if (now - rays > 500 && !api.keepRays) {
         rays = now;
         const mp = (world.input as unknown as { xr?: { multiPointers?: Record<string, { toggleSubPointer(k: string, on: boolean): boolean }> } }).xr?.multiPointers;
         for (const side of ['left', 'right']) {
