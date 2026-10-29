@@ -78,6 +78,47 @@ export function nearness(distance: number): number {
   return Math.min(1, Math.max(0, (0.15 - distance) / 0.11));
 }
 
+/**
+ * 29 Oct — the owner, on a real Quest 3: "transparent hands with luminous blue lines". Meta's design guideline
+ * (developers.meta.com/horizon/resources/hand-representation, "Gating feedback"): the OUTLINE turns blue when the hand
+ * is in a pose or area that starts an action, and the pinching fingers turn light blue as the pinch begins; a finger's
+ * outline brightens as it curls or nears a target ("Progress feedback"). The fill stays Meta's dark grey.
+ * `grey` is the look shipped until 29 Oct (pinching fingers turn white); `meta-blue` adds the blues — the default since
+ * the owner validated it on the comparison sheet (29 Oct). `?hands=meta` (or `?hands=grey`) picks one for a page, else
+ * `localStorage['wdd.hands']` (the sheet's switch).
+ * The exact blues are not published (no hex in Meta's pages): Meta's system accent blue family, chosen to read as
+ * "luminous" over passthrough at night; to retune from a headset capture if one becomes available.
+ */
+export type HandStyle = 'grey' | 'meta-blue';
+export const DEFAULT_HAND_STYLE: HandStyle = 'meta-blue';
+export const META_BLUE = {
+  /** Outline where an action starts (a fingertip near a stone or a button). */
+  gate: [0x4a / 255, 0xa3 / 255, 1] as const,
+  /** Outline of the pinching fingers (light blue). */
+  pinch: [0xa8 / 255, 0xd8 / 255, 1] as const,
+} as const;
+
+export function handStyle(search = typeof location !== 'undefined' ? location.search : '', stored: string | null = storedHandStyle()): HandStyle {
+  const v = new URLSearchParams(search).get('hands') ?? stored;
+  return v === 'meta' ? 'meta-blue' : v === 'grey' ? 'grey' : DEFAULT_HAND_STYLE;
+}
+
+/** The comparison sheet's switch (`wdd.hands` = meta | grey in this browser), read once at load. */
+function storedHandStyle(): string | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem('wdd.hands');
+  } catch {
+    return null;
+  }
+}
+
+/** How blue the outline is (0..1) from how near the fingertip is to a target: none in `grey`. */
+export function gateBlue(style: HandStyle, near: number): number {
+  if (style !== 'meta-blue') return 0;
+  const t = Math.min(1, Math.max(0, (near - 0.35) / 0.5));
+  return t * t * (3 - 2 * t);
+}
+
 /** Which finger a hand joint belongs to: 0 thumb, 1 index, 2 middle, 3 ring + little, -1 wrist / palm. */
 export function fingerOfJoint(name: string): number {
   if (name.startsWith('thumb')) return 0;

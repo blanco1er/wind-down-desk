@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { curlStrength, FILL_OPACITY, fillOpacity, fingerOfJoint, handStage, META_HAND, nearness, pinchStrength } from '../src/logic/hand-look.ts';
+import { curlStrength, DEFAULT_HAND_STYLE, FILL_OPACITY, fillOpacity, fingerOfJoint, gateBlue, handStage, handStyle, META_HAND, nearness, pinchStrength } from '../src/logic/hand-look.ts';
 
 const hex = (c: readonly number[]) => c.map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
 
@@ -55,4 +55,15 @@ test('finger of each WebXR joint (which outline lights up)', () => {
   assert.equal(fingerOfJoint('pinky-finger-phalanx-proximal'), 3);
   assert.equal(fingerOfJoint('index-finger-metacarpal'), -1, 'palm');
   assert.equal(fingerOfJoint('wrist'), -1);
+});
+
+test('hands: Meta blue style is opt-in (?hands=meta), grey by default, blue only near a target', () => {
+  assert.equal(handStyle('', null), DEFAULT_HAND_STYLE);
+  assert.equal(handStyle('?hands=meta', null), 'meta-blue');
+  assert.equal(handStyle('?hands=grey', 'meta'), 'grey', 'the URL wins over the stored switch');
+  assert.equal(handStyle('', 'meta'), 'meta-blue');
+  assert.equal(gateBlue('grey', 1), 0, 'the grey look never turns blue');
+  assert.equal(gateBlue('meta-blue', 0.2), 0, 'far from anything: grey outline');
+  assert.equal(gateBlue('meta-blue', 1), 1, 'at a target: full gating blue');
+  assert.ok(gateBlue('meta-blue', 0.6) > 0 && gateBlue('meta-blue', 0.6) < 1);
 });

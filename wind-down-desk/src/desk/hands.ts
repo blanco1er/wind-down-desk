@@ -8,7 +8,8 @@
  *     desk so that, like IWSDK's stencil, it keeps your real hand in front of the tray. In Full immersion it is
  *     Meta's VR hand (0.79 opaque).
  *   - the outline: a thin translucent light grey edge (inset fill + back faces of the shell), fading at the wrist;
- *     the fingers that pinch or curl turn white (Meta's progress feedback).
+ *     the fingers that pinch or curl turn white (Meta's progress feedback). With `?hands=meta` (29 Oct, prototype):
+ *     Meta's gating blue on the outline near a target, light blue on the pinching fingers.
  * GhostHand (onboarding: "pinch a stone, drop it in a bowl"): the same Meta hand (fill + outline), cloned, lighter,
  * animated between IWER's relaxed and pinch poses; its thumb and index outline light up as it pinches. Two draw calls,
  * only during the first minute (a single-mesh version with a fresnel "outline" read as glass on thin fingers).
@@ -22,26 +23,30 @@ import {
   Matrix4,
   Quaternion,
   ShaderMaterial,
+  SkinnedMesh,
   Vector3,
   Vector4,
   type Bone,
   type BufferGeometry,
   type Object3D,
-  type SkinnedMesh,
   type World,
 } from '@iwsdk/core';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { curlStrength, fillOpacity, fingerOfJoint, handStage, META_HAND, pinchStrength, type HandStage } from '../logic/hand-look.ts';
+import { curlStrength, fillOpacity, fingerOfJoint, gateBlue, handStage, handStyle, META_BLUE, META_HAND, pinchStrength, type HandStage } from '../logic/hand-look.ts';
 import { HAND_JOINTS, MIRROR_TO_RIGHT, PINCH, RELAXED } from './hand-poses.ts';
 
 const v3 = (c: readonly number[]) => `vec3(${c.map((x) => x.toFixed(4)).join(', ')})`;
+/** 29 Oct: Meta's blue gating / pinch feedback, or the grey look (logic/hand-look.ts, chosen once per page). */
+const STYLE = handStyle();
+const BLUE = STYLE === 'meta-blue';
 
 /** Shared GLSL: Meta's fill colour and the wrist fade. */
 const META_GLSL = /* glsl */ `
   const vec3 FILL_FACE = ${v3(META_HAND.fillFace)};
   const vec3 FILL_EDGE = ${v3(META_HAND.fillEdge)};
   const vec3 OUTLINE = ${v3(META_HAND.outline)};
-  const vec3 OUTLINE_LIT = ${v3(META_HAND.outlineLit)};
+  const vec3 OUTLINE_LIT = ${v3(BLUE ? META_BLUE.pinch : META_HAND.outlineLit)};
+  const vec3 OUTLINE_GATE = ${v3(BLUE ? META_BLUE.gate : META_HAND.outline)};
   vec3 metaFill(vec3 n, vec3 v) {
     float f = pow(1.0 - clamp(abs(dot(normalize(n), normalize(v))), 0.0, 1.0), ${META_HAND.fresnelPower.toFixed(2)});
     return mix(FILL_FACE, FILL_EDGE, f);
@@ -83,7 +88,9 @@ function skinnedVertex(offset: string): string {
 }
 
 type FillMaterial = ShaderMaterial & { uniforms: { uOpacity: { value: number }; uInset: { value: number }; uGlow: { value: Vector4 } } };
-type OutlineMaterial = ShaderMaterial & { uniforms: { uAlpha: { value: number }; uFade: { value: number }; uInset: { value: number }; uGlow: { value: Vector4 } } };
+type OutlineMaterial = ShaderMaterial & {
+  uniforms: { uAlpha: { value: number }; uFade: { value: number }; uInset: { value: number }; uGlow: { value: Vector4 }; uGate: { value: number } };
+};
 /** Meta's fill: two dark greys by fresnel, translucent, fading at the wrist; inset under the outline shell. */
 export function createFillMaterial(): FillMaterial {
   return new ShaderMaterial({
@@ -96,8 +103,11 @@ export function createFillMaterial(): FillMaterial {
       varying vec3 vN;
       varying vec3 vV;
       void main() {
+        // 29 Oct (owner's sheet: a blob by the thumb, light marks in the palm): never discarded, even where the wrist
+        // fade makes it invisible — its depth must still hide the outline shell's far side. A discarded wrist and
+        // thumb base let the shell's back faces through: curled fingers under the palm drew light marks, and the
+        // lit thumb (pinch, point) drew a solid blob. The shell then only shows its rim, as Meta's outline does.
         float a = uOpacity * wristFade(vWristDist);
-        if (a < 0.002) discard;
         gl_FragColor = vec4(metaFill(vN, vV), a);
       }
     `,
@@ -110,21 +120,43 @@ export function createFillMaterial(): FillMaterial {
   }) as FillMaterial;
 }
 
+/**
+ * 29 Oct (owner's sheet: light shapes in the palm in Full): a depth-only pass of the same inset hand, drawn just before
+ * the fill, so the translucent fill keeps only its nearest layer — curled fingers under the palm no longer show
+ * through as a second, lighter layer. One extra draw call per hand (budget: 25 per eye, the evening uses 13–17).
+ */
+export function createDepthMaterial(): ShaderMaterial & { uniforms: { uInset: { value: number }; uGlow: { value: Vector4 } } } {
+  return new ShaderMaterial({
+    uniforms: { uInset: { value: META_HAND.insetMetres }, uGlow: { value: new Vector4() } },
+    vertexShader: skinnedVertex('position - normal * uInset'),
+    fragmentShader: /* glsl */ `void main() { gl_FragColor = vec4(0.0); }`,
+    side: FrontSide,
+    colorWrite: false,
+    // In the transparent list, sorted by renderOrder just before the fill: what lies behind the hand (the place, the
+    // desk) is already drawn, so it never punches a hole in them (an opaque pass did: the backdrop failed its depth).
+    transparent: true,
+    depthWrite: true,
+    depthTest: true,
+  }) as ShaderMaterial & { uniforms: { uInset: { value: number }; uGlow: { value: Vector4 } } };
+}
+
 /** Meta's outline: translucent light grey back faces around the inset fill; pinching / curling fingers turn white. */
 export function createOutlineMaterial(): OutlineMaterial {
   return new ShaderMaterial({
-    uniforms: { uAlpha: { value: 0.85 }, uFade: { value: 1 }, uInset: { value: 0 }, uGlow: { value: new Vector4() } },
+    uniforms: { uAlpha: { value: 0.85 }, uFade: { value: 1 }, uInset: { value: 0 }, uGlow: { value: new Vector4() }, uGate: { value: 0 } },
     vertexShader: skinnedVertex('position + normal * uInset'),
     fragmentShader: /* glsl */ `
       ${META_GLSL}
       uniform float uAlpha;
       uniform float uFade;
+      uniform float uGate;
       varying float vWristDist;
       varying float vGlow;
       void main() {
-        float a = mix(uAlpha, 1.0, vGlow) * wristFade(vWristDist) * uFade;
+        // uGate (meta-blue only): the whole outline turns blue where an action starts; vGlow: the pinching fingers.
+        float a = mix(mix(uAlpha, 1.0, uGate), 1.0, vGlow) * wristFade(vWristDist) * uFade;
         if (a < 0.002) discard;
-        gl_FragColor = vec4(mix(OUTLINE, OUTLINE_LIT, vGlow), a);
+        gl_FragColor = vec4(mix(mix(OUTLINE, OUTLINE_GATE, uGate), OUTLINE_LIT, vGlow), a);
       }
     `,
     side: BackSide,
@@ -173,6 +205,8 @@ interface Styled {
   side: 'left' | 'right';
   model: Object3D;
   fill: SkinnedMesh;
+  /** Depth-only twin of the fill (createDepthMaterial), drawn just before it. */
+  depth: SkinnedMesh;
   shell: SkinnedMesh;
   fillMaterial: FillMaterial;
   outlineMaterial: OutlineMaterial;
@@ -181,6 +215,7 @@ interface Styled {
   wrist: Object3D | null;
   longTips: Object3D[];
   near: number;
+  buttonNear: number;
   pinch: number;
 }
 
@@ -219,6 +254,12 @@ export class HandLook {
     for (const s of this.styled) if (s.side === side) s.near = near;
   }
 
+  /** Meta blue style only: is the hand's index tip about to touch a glass button (0..1)? */
+  readonly wantsButtonNear = BLUE;
+  setButtonNear(side: 'left' | 'right', near: number): void {
+    for (const s of this.styled) if (s.side === side) s.buttonNear = near;
+  }
+
   /** Call every frame: styles new hand models once, then a few uniforms (pinch, curl, opacity). */
   update(world: World, full: boolean, emulated: boolean): void {
     const a = adapters(world);
@@ -235,11 +276,20 @@ export class HandLook {
       m.stencil.material = fillMaterial;
       m.shell.material = outlineMaterial;
       m.shell.renderOrder = 999;
+      const depth = new SkinnedMesh(m.stencil.geometry, createDepthMaterial());
+      depth.name = `${m.stencil.name}-depth`;
+      depth.frustumCulled = false;
+      depth.bind(m.stencil.skeleton, m.stencil.bindMatrix);
+      depth.position.copy(m.stencil.position);
+      depth.quaternion.copy(m.stencil.quaternion);
+      depth.scale.copy(m.stencil.scale);
+      m.stencil.parent?.add(depth);
       const named = (n: string) => model.getObjectByName(n) ?? null;
       this.styled.push({
         side,
         model,
         fill: m.stencil,
+        depth,
         shell: m.shell,
         fillMaterial,
         outlineMaterial,
@@ -248,6 +298,7 @@ export class HandLook {
         wrist: named('wrist'),
         longTips: ['middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'].map(named).filter((o): o is Object3D => o != null),
         near: 0,
+        buttonNear: 0,
         pinch: 0,
       });
       if (this.source == null || side === 'right') this.source = { model, side };
@@ -270,10 +321,16 @@ export class HandLook {
       s.pinch = pinch;
       // Meta's progress feedback: the pinching fingers (thumb, index), or all of them for a grab, turn white.
       const g = s.outlineMaterial.uniforms.uGlow.value;
-      g.set(Math.max(pinch, curl), Math.max(pinch, curl), curl, curl);
+      // Meta blue: the finger about to touch a button lights up light blue too (Meta: "the finger's outline gets
+      // brighter as it nears a virtual object"), and the whole outline turns gating blue.
+      const touch = BLUE ? gateBlue(STYLE, s.buttonNear) : 0;
+      g.set(Math.max(pinch, curl), Math.max(pinch, curl, touch), curl, curl);
+      s.outlineMaterial.uniforms.uGate.value = gateBlue(STYLE, Math.max(s.near, s.buttonNear, pinch));
       s.fillMaterial.uniforms.uOpacity.value = fillOpacity(this.stage, s.near, pinch);
       s.fill.renderOrder = FILL_ORDER[this.stage];
       s.fill.visible = true;
+      s.depth.renderOrder = FILL_ORDER[this.stage] - 1;
+      s.depth.visible = true;
     }
   }
 
@@ -392,6 +449,7 @@ export class GhostHand {
     this.fillMaterial.uniforms.uOpacity.value = GHOST_FILL * alpha;
     this.outlineMaterial.uniforms.uFade.value = alpha;
     this.outlineMaterial.uniforms.uGlow.value.set(pinch, pinch, 0, 0);
+    this.outlineMaterial.uniforms.uGate.value = gateBlue(STYLE, pinch);
     this.root.visible = alpha > 0.01;
   }
 

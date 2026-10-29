@@ -2099,6 +2099,23 @@ export class RitualSystem extends createSystem({
     track('globe', { step: 'open' }, 'globe:open');
   }
 
+  /**
+   * 29 Oct (hands, Meta blue prototype): how close a hand's index tip is to a shown, touchable glass button — 1
+   * within 1.5 cm of its centre, 0 beyond 8 cm. Only computed when that style is on.
+   */
+  private buttonNearness(side: 'left' | 'right'): number {
+    const tip = this.player.indexTipSpaces[side].getWorldPosition(this.tipTmp);
+    let best = Infinity;
+    for (const e of this.queries.buttons.entities) {
+      if (!e.hasComponent(PokeInteractable)) continue;
+      const o = e.object3D as (Mesh & { pointerEvents?: string }) | undefined;
+      if (o == null || !o.visible || o.pointerEvents === 'none') continue;
+      const d = o.getWorldPosition(this.v2).distanceTo(tip);
+      if (d < best) best = d;
+    }
+    return Math.min(1, Math.max(0, (0.08 - best) / 0.065));
+  }
+
   /** The nearest shown, pointable glass button (or the lamp while Places is open) on the camera ray through `ndc`. */
   private pickButtonAt(ndcX: number, ndcY: number): string | null {
     this.pickRay.setFromCamera(this.pickNdc.set(ndcX, ndcY), this.world.camera);
@@ -4026,6 +4043,9 @@ export class RitualSystem extends createSystem({
     }
     this.handLook.setNear('left', nearness(Math.max(0, nearLeft - this.layout.tokenRadius)));
     this.handLook.setNear('right', nearness(Math.max(0, nearRight - this.layout.tokenRadius)));
+    if (this.handLook.wantsButtonNear) {
+      for (const side of ['left', 'right'] as const) this.handLook.setButtonNear(side, this.buttonNearness(side));
+    }
     this.shadowSeen = shadowIndex;
     if (!anyReleasing) {
       this.visuals.setEmber(0);
