@@ -70,6 +70,18 @@ import { skyGlobeLayout } from '../logic/caption-layout.ts';
 export const PLACES_IN_GLOBE = true;
 /** Desk-local spot of the grown globe (above and behind the Later / Let go bowls, clear of them from the seat). */
 export const GLOBE_SHOW = { x: 0.1, y: 0.22, z: -0.08, radius: 0.085, tilt: -0.45, button: 0.05, gap: 0.028, label: 0.17 } as const;
+/** 29 Oct: over the open globe, the "Table stays | Full" switch (5.8 cm tall) right above the glass, the place's
+ * name with ✕ and "Recenter desk" one row higher (heights from the sphere's top, desk-local metres). */
+const GLOBE_ROW = { toggle: 0.042, title: 0.108 } as const;
+/**
+ * 29 Oct (owner, emulated preview on a computer: "no difference between mixed and Full"): there is no camera and
+ * no room in the preview, so "Table stays" has nothing to keep. The switch exists only where passthrough does.
+ */
+const IMMERSION_SWITCH = typeof document === 'undefined' || !document.documentElement.classList.contains('wdd-preview');
+/** Height of the globe's title row above the sphere: one row higher when the switch sits under it. */
+function globeTitleDy(): number {
+  return IMMERSION_SWITCH ? GLOBE_ROW.title : GLOBE_ROW.toggle - 0.004;
+}
 
 function approach(current: number, target: number, rate: number, dt: number): number {
   return current + (target - current) * (1 - Math.exp(-rate * dt));
@@ -542,7 +554,7 @@ export class DeskVisuals {
     this.immersionEntity = world.createTransformEntity(this.immersionToggle, this.rootEntity);
     this.hover.immersion = new Spring(0);
     // 22 Oct: "Move desk here", right of the switch under the grid (14 × 4.6 cm), only while Places is open.
-    const moveMaterial = createCardMaterial(drawButton('Move desk here', DS.accent.lamp, false, 640));
+    const moveMaterial = createCardMaterial(drawButton('Recenter desk', DS.accent.lamp, false, 640));
     this.moveUniforms = moveMaterial.uniforms;
     this.moveChip = new Mesh(createQuad(MOVE_CHIP.w, Math.max(DS.minTarget, (MOVE_CHIP.w * 208) / 640)), moveMaterial);
     onPane(layout, MOVE_CHIP.x, GRID.dy[GRID.dy.length - 1] - 0.066, this.moveChip.position);
@@ -934,13 +946,13 @@ export class DeskVisuals {
       const side = r + GLOBE_SHOW.gap + GLOBE_SHOW.button / 2;
       if (b.action === 'globe-prev') b.mesh.position.set(cx - side, cy, cz);
       else if (b.action === 'globe-next') b.mesh.position.set(cx + side, cy, cz);
-      else b.mesh.position.set(cx + GLOBE_SHOW.label / 2 + GLOBE_SHOW.gap, cy + r + 0.038, cz - 0.004);
+      else b.mesh.position.set(cx + GLOBE_SHOW.label / 2 + GLOBE_SHOW.gap, cy + r + globeTitleDy(), cz - 0.004);
     }
     this.globeLabel.visible = show;
     if (show) {
       this.globeLabelUniforms.uOpacity.value = k;
       this.globeLabel.rotation.x = GLOBE_SHOW.tilt;
-      this.globeLabel.position.set(cx, cy + r + 0.038, cz - 0.004);
+      this.globeLabel.position.set(cx, cy + r + globeTitleDy(), cz - 0.004);
       // "Move desk here" stays one touch away, left of the title (the × is on its right).
       const hover = this.hover['move-desk'].step(dt);
       this.moveChip.visible = true;
@@ -948,7 +960,7 @@ export class DeskVisuals {
       this.moveUniforms.uHighlight.value = hover;
       this.moveChip.rotation.x = GLOBE_SHOW.tilt;
       this.moveChip.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover) * 0.8);
-      this.moveChip.position.set(cx - GLOBE_SHOW.label / 2 - GLOBE_SHOW.gap - MOVE_CHIP.w * 0.4, cy + r + 0.038, cz - 0.004);
+      this.moveChip.position.set(cx - GLOBE_SHOW.label / 2 - GLOBE_SHOW.gap - MOVE_CHIP.w * 0.4, cy + r + globeTitleDy(), cz - 0.004);
     } else if (!this.menuOpen) {
       this.moveChip.visible = false;
     }
@@ -1504,6 +1516,14 @@ export class DeskVisuals {
     const toggleDy = menuK > 0.5 ? GRID.dy[GRID.dy.length - 1] - 0.066 - (PLACES_IN_GLOBE ? 0.012 : 0) : -0.128 + tk * 0.03 + lift * 0.05;
     this.immersionToggle.rotation.x = onNearPane(this.layout, menuK > 0.5 ? 0 : aside * CAPTION_ASIDE, toggleDy, menuK > 0.5 ? nk : 0, this.paneTmp);
     this.immersionToggle.position.copy(this.paneTmp);
+    // 29 Oct (owner: "the switch crosses the globe and the bowls"): with the lamp's globe open the switch stands
+    // just above the glass, under the place's name (GLOBE_ROW) — never through the sphere nor over a bowl.
+    const inGlobe = this.globeK > 0.02;
+    if (inGlobe) {
+      const r = LAMP.globe * this.orbPose.scale;
+      this.immersionToggle.rotation.x = GLOBE_SHOW.tilt;
+      this.immersionToggle.position.set(this.orbPose.x, this.orbPose.y + r + GLOBE_ROW.toggle, this.orbPose.z - 0.004);
+    }
     const toggleHover = this.hover.immersion.step(dt);
     // While the lamp waits for an answer (Yes / Not now, Longer / Enough, the words to touch), the switch fades out:
     // one question at a time, and nothing ever stacks on it (owner, 19 Oct: twice "it is almost glued to Yes").
@@ -1513,8 +1533,8 @@ export class DeskVisuals {
     this.toggleHideK = approach(this.toggleHideK, asking ? 1 : 0, 6, dt);
     this.immersionUniforms.uOpacity.value = tk * (menuK > 0.5 ? menuK : Math.max(cap.value, 0.55)) * (1 - this.dim * 0.4) * (1 - this.toggleHideK);
     this.immersionUniforms.uHighlight.value = toggleHover;
-    this.immersionToggle.scale.setScalar(1 + 0.04 * toggleHover);
-    this.immersionToggle.visible = tk > 0.02 && this.cardTarget === 0 && this.toggleHideK < 0.98;
+    this.immersionToggle.scale.setScalar((inGlobe ? 0.8 : 1) * (1 + 0.04 * toggleHover));
+    this.immersionToggle.visible = IMMERSION_SWITCH && tk > 0.02 && this.cardTarget === 0 && this.toggleHideK < 0.98;
     // Card: spring in (scale 0.94 → 1 with opacity), calm fade out.
     this.cardSpring.target = this.cardTarget;
     const k = Math.max(0, Math.min(1.05, this.cardSpring.step(dt, 180, 24)));
