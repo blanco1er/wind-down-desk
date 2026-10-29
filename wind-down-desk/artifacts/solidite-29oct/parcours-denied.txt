@@ -1,0 +1,57 @@
+Hands-only run: NO BLOCK, 211 s of scripts
+— Part 1 (29.5 s)
+    0.1 s  desk placed  [unload/dump]  placement="table" activeStones=1 presses=""
+    9.8 s  Unload started  [unload/dump]  proposal=null presses=""
+   13.1 s  stone 1 pinched into tomorrow  [unload/dump]  ok=true word="example stone" presses=""
+   18.4 s  stone 2 pinched into later  [unload/dump]  ok=true word="Work" presses="word:0"
+   23.5 s  stone 3 pinched into let-go  [unload/dump]  ok=true word="Money" presses="word:0,word:1"
+   26.5 s  "That's all" touched  [unload/plan]  presses="word:0,word:1,word:7"
+   29.5 s  plan kept by touch  [choose/night]  presses="word:1,word:7,keep"
+   29.5 s  Unload done  [choose/night]  done=["unload"] presses="word:1,word:7,keep"
+— Part 2 (37.1 s)
+    3.1 s  Release: a stone of tonight touched  [release/night]  presses="keep,ritual:release,word:0"
+    9.4 s  Release: the weight pinched and dropped over the water  [release/sinking]  presses="keep,ritual:release,word:0"
+   16.2 s  Release done  [choose/night]  done=["unload","release"] presses="keep,ritual:release,word:0"
+   29.4 s  Breathe: "Enough" touched  [breathe/night]  presses="word:0,ritual:breathe,lighter"
+— Part 3 (36 s)
+   12.5 s  Squeeze: fists closed, then opened  [squeeze/night]  presses="ritual:breathe,lighter,ritual:squeeze"
+   14.3 s  Squeeze: "Enough" touched  [squeeze/night]  replies=["Once more","Enough"] presses="lighter,ritual:squeeze,lighter"
+   28.8 s  Keep: three good things touched  [keep/night]  words=["Someone kind","A good meal","Rest"] kept=["Someone kind","A good meal","Rest"] presses="word:0,word:0,word:0"
+     36 s  Keep done  [choose/night]  lights=3 presses="word:0,word:0,word:0"
+— Part 4 (76.9 s)
+   11.5 s  Talk: a bubble touched  [talk/night]  presses="word:0,ritual:talk,word:1"
+     14 s  Talk: "That's all" touched  [talk/night]  streamFallbacks=[] presses="ritual:talk,word:1,keep"
+   26.8 s  Talk: its stones pinched into Let go  [unload/dump]  tokens=4 presses="ritual:talk,word:1,keep"
+   27.8 s  "That's all" touched  [unload/plan]  presses="word:1,keep,word:7"
+   38.2 s  journal: opened, Earlier, Close  [choose/night]  earlier=0 closed=true presses="ritual:sky,keep,lighter"
+   55.7 s  Places: a place chosen, Full  [choose/night]  place="moon-beach" immersion="full" presses="places,immersion,globe-close"
+   68.5 s  Places: back to my room by touch  [choose/night]  place="room" presses="globe-next,orb,orb"
+   76.9 s  volumes: Sound held, voice slid, Done  [choose/night]  voice=[0.7,0.5] closed=true muteUnchanged=true presses="orb,voice,keep"
+— Part 5 (31.6 s)
+      7 s  Good night: bead slid by a fingertip  [choose/night]  out=3 presses="keep,rituals,ritual:sleep"
+   21.6 s  night: the lamp asks  [night/night]  replies=["Stay with me","Good night"] ceiling={"y":3.8831064701080322,"source":"plane"} presses="keep,rituals,ritual:sleep"
+   25.2 s  night: "Stay with me", 10 min  [night/night]  sleep={"minutes":10,"seconds":2.9,"boost":0,"k":0.004888166666726003,"light":0.9999285510773185,"sound":0.9921904100243879,"breathsPerMinute":5.995111833333274,"done":false} presses="ritual:sleep,keep,word:0"
+   27.9 s  night: halfway through the fade  [night/night]  sleep={"minutes":10,"seconds":305.6,"boost":0,"k":0.5093878333333128,"light":0.4859199047260959,"sound":0.32002308132782825,"breathsPerMinute":5.490612166666687,"done":false} presses="ritual:sleep,keep,word:0"
+   31.6 s  "Lights out": the session ended by itself  [night/night]  presses="keep,word:0,keep"
+
+Real fingertip pokes: 45; misses: 0
+Pinches into a bowl: 4; misses: 0; fingertip slides on a rail: 2
+Failed requests (page network): 1
+  11.2s after "start": talk net::ERR_ABORTED (canceled) {"text":"Today was a lot.","summary":"","turns":[],"weights"
+Console errors (page listener): 0; warnings: 1
+Console errors (CLI capture since start): 1
+  POST https://localhost:8091/api/talk: net::ERR_ABORTED
+Draw calls per eye — emulator p50 / max, then on the headset (without the emulator-only room photo and table); budget 25:
+       unload stone waiting               20 / 20  → headset 18   triangles 85262
+       unload words back                  19 / 19  → headset 17   triangles 83430
+       plan card                          20 / 20  → headset 18   triangles 79710
+       release weight                     18 / 18  → headset 16   triangles 79894
+       breathe                            19 / 19  → headset 17   triangles 84958
+       squeeze fists                      20 / 20  → headset 18   triangles 72406
+       keep words                         19 / 20  → headset 18   triangles 79734
+       journal                            21 / 21  → headset 19   triangles 89334
+       place moon-beach                   23 / 23  → headset 21   triangles 97486
+       place moon-beach (Full)            21 / 21  → headset 21   triangles 79414
+       volumes                            21 / 21  → headset 19   triangles 83322
+       night sky on the ceiling           21 / 21  → headset 19   triangles 83638
+       night: halfway through the fade    21 / 21  → headset 19   triangles 83646

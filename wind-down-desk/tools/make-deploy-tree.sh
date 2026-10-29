@@ -2,7 +2,8 @@
 # Copie allégée du dernier commit, prête à devenir le dépôt GitHub que Render construit (22 oct. 2026).
 # Ne pousse rien, ne crée aucun dépôt distant : elle écrit un dossier, c'est tout.
 #   sh tools/make-deploy-tree.sh [dossier de sortie, par défaut ../../wind-down-desk-deploy]
-# Gardé : render.yaml + wind-down-desk/ (code, serveur, public/, tests, outils, réglages, licences).
+# Gardé : render.yaml + wind-down-desk/ (code, serveur, public/, tests, outils, réglages, licences, MEASUREMENTS.md
+#        et ses petits fichiers de mesure JSON / TXT d'artifacts/solidite-29oct, jamais les images).
 # Écarté : artifacts/ (≈ 213 Mo de vidéos et captures), archive/, film-set/ (décor de tournage, dev seulement),
 #          dist/, notes internes (PLAN.md, TECH.md, DEVPOST.md, PLAYTEST.md, notes des agents,
 #          .agents/, .codex/, .cursor/, opencode.json), et tout ce qui n'est pas commité.
@@ -22,7 +23,10 @@ git archive --format=tar HEAD -- \
   wind-down-desk/index.html wind-down-desk/package.json wind-down-desk/package-lock.json \
   wind-down-desk/tsconfig.json wind-down-desk/tsconfig.node.json wind-down-desk/vite.config.ts \
   wind-down-desk/iwsdk.config.json wind-down-desk/pnpm-workspace.yaml wind-down-desk/.nvmrc wind-down-desk/.gitignore \
-  wind-down-desk/LICENSE wind-down-desk/CREDITS.md wind-down-desk/README.md \
+  wind-down-desk/LICENSE wind-down-desk/CREDITS.md wind-down-desk/README.md wind-down-desk/MEASUREMENTS.md \
+  ':(glob)wind-down-desk/artifacts/solidite-29oct/*.json' ':(glob)wind-down-desk/artifacts/solidite-29oct/*.txt' \
+  ':(glob)wind-down-desk/artifacts/solidite-29oct/long-final.jsonl' ':(glob)wind-down-desk/artifacts/solidite-29oct/prod-29oct/*.json' \
+  ':(exclude,glob)wind-down-desk/artifacts/solidite-29oct/*-console.json' \
   | tar -x -C "$OUT"
 cat > "$OUT/.gitignore" <<'EOF'
 node_modules/

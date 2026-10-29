@@ -1,0 +1,80 @@
+{
+ "scene": "blind",
+ "session": {
+  "enabledFeatures": [
+   "local-floor",
+   "bounded-floor",
+   "hand-tracking",
+   "anchors",
+   "hit-test",
+   "plane-detection",
+   "mesh-detection",
+   "viewer",
+   "local"
+  ],
+  "denied": false
+ },
+ "placement": "table",
+ "source": "hit",
+ "surfaces": {
+  "planes": 0,
+  "meshes": [],
+  "hits": 0,
+  "probe": "off",
+  "choice": null
+ },
+ "anchor": "persisted",
+ "anchorLog": [
+  "anchored (hit, replace)",
+  "persisted a234126e",
+  "deleted old handle 291aa1a8"
+ ],
+ "mic": "off",
+ "origin": {
+  "x": -1.414474374142002,
+  "y": 0.8092325222492218,
+  "z": 0.20000004391252518
+ },
+ "reach": {
+  "bowlsFromEyes": [
+   0.79,
+   0.75,
+   0.79
+  ],
+  "bowlsFromShoulder": [
+   0.79,
+   0.7,
+   0.69
+  ],
+  "ritualsFromShoulder": 0.45,
+  "replyFromShoulder": 0.8,
+  "deskBelowEyes": 0.39
+ },
+ "pinched": true,
+ "keepWall": null,
+ "walls": 0,
+ "ceiling": {
+  "y": 2.300000047683716,
+  "source": "dome"
+ },
+ "hands": {
+  "pokes": 12,
+  "pokeMisses": [
+   {
+    "action": "keep",
+    "why": "hidden",
+    "mode": "choose"
+   }
+  ],
+  "grabs": 1,
+  "grabMisses": [],
+  "slides": 0
+ },
+ "stills": [
+  "blind-1-bureau.jpg",
+  "blind-2-mots.jpg",
+  "blind-3-pierre-posee.jpg",
+  "blind-4-lumieres-keep.jpg",
+  "blind-5-ciel-nuit.jpg"
+ ]
+}

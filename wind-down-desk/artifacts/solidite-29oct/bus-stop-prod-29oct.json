@@ -1,0 +1,196 @@
+{
+ "base": "https://wind-down-desk.onrender.com",
+ "mode": "busstop",
+ "at": "2026-10-29T08:44:56.704Z",
+ "stageSeconds": 4.1,
+ "loadAvg": "50.23",
+ "result": {
+  "seconds": 33.5,
+  "log": [
+   {
+    "s": 0,
+    "step": "start",
+    "mode": "unload",
+    "tension": null,
+    "replies": null,
+    "words": [
+     "Work",
+     "Money",
+     "Health",
+     "Family",
+     "Someone",
+     "A worry",
+     "Write…"
+    ],
+    "tokens": 0,
+    "xr": true
+   },
+   {
+    "s": 9,
+    "step": "unload",
+    "proposed": null
+   },
+   {
+    "s": 11.5,
+    "step": "example stone in a bowl",
+    "bins": [
+     "later"
+    ]
+   },
+   {
+    "s": 12,
+    "step": "word 1 touched",
+    "words": [
+     "Work",
+     "Money",
+     "Health",
+     "Family",
+     "Someone",
+     "A worry",
+     "Write…",
+     "That's all"
+    ],
+    "index": 0
+   },
+   {
+    "s": 15.1,
+    "step": "stone 1 in a bowl",
+    "bins": [
+     "later",
+     "tomorrow"
+    ]
+   },
+   {
+    "s": 15.5,
+    "step": "word 2 touched",
+    "words": [
+     "Work",
+     "Money",
+     "Health",
+     "Family",
+     "Someone",
+     "A worry",
+     "Write…",
+     "That's all"
+    ],
+    "index": 1
+   },
+   {
+    "s": 18.8,
+    "step": "stone 2 in a bowl",
+    "bins": [
+     "later",
+     "tomorrow",
+     "let-go"
+    ]
+   },
+   {
+    "s": 20.2,
+    "step": "good night touched",
+    "replies": null,
+    "mode": "unload"
+   },
+   {
+    "s": 25.3,
+    "step": "night: your sky rises"
+   },
+   {
+    "s": 29.8,
+    "step": "lamp asks to stay"
+   },
+   {
+    "s": 33.5,
+    "step": "session ended"
+   }
+  ]
+ },
+ "api": [
+  {
+   "s": "3.2",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "3.8",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "4.7",
+   "m": "GET",
+   "path": "health"
+  },
+  {
+   "s": "4.9",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "7.1",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "7.1",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "7.3",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "7.3",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "9.5",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "9.5",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "9.5",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "11.5",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "13.3",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "34.4",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "44.7",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "47.7",
+   "m": "POST",
+   "path": "visit"
+  }
+ ],
+ "apiByPath": {
+  "visit": 15,
+  "health": 1
+ },
+ "pageErrors": [
+  "console: Failed to load audio: ./voice/26af4165.mp3 AssetLoadError: Failed to load asset \"./voice/26af4165.mp3\" from \"./voice/26af4165.mp3\": Asset load timed out after 30000 ms: ./voice/26af4165.mp3\n    at Ci.loadAssetByType (https://wind-down-desk."
+ ]
+}

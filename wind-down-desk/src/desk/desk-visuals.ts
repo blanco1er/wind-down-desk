@@ -59,6 +59,7 @@ import { FIG_MAX } from './materials.ts';
 import type { QualityKnobs } from '../logic/quality.ts';
 import { RITUAL_MENU, type RitualKind, type RitualMenuId } from '../logic/evening.ts';
 import { createMoonGeometry } from './ritual-geometry.ts';
+import { skyGlobeLayout } from '../logic/caption-layout.ts';
 
 /**
  * 26 Oct (owner: "the lamp shows"): Places opens INSIDE the lamp. The globe floats up behind the bowls and grows to
@@ -209,6 +210,10 @@ export class DeskVisuals {
   private readonly orbGeoMoon: ReturnType<typeof createMoonGeometry>;
   /** v6: true while a ritual drives the globe frame by frame (no spring). */
   orbDirect = false;
+  /** 29 Oct: the globe shows your sky beside the caption (its x follows the caption pill's width, never over it). */
+  private skyBesideCaption = false;
+  /** 29 Oct: the caption's extra left shift while the sky globe needs more room (eased, desk-local metres, ≤ 0). */
+  private skyCaptionShift = 0;
   /** v6: the bowls slide into the tray (0 = up, 1 = gone). */
   bowlsAwayTarget = 0;
   /** Lamp energy this frame (read by the rituals: water reflection, palm glow). */
@@ -679,6 +684,7 @@ export class DeskVisuals {
 
   /** The globe goes home to its foot. */
   orbHome(): void {
+    this.skyBesideCaption = false;
     Object.assign(this.orbTarget, { x: this.orbLocal.x, y: this.orbLocal.y, z: this.orbLocal.z, scale: 1 });
   }
 
@@ -689,6 +695,7 @@ export class DeskVisuals {
 
   /** Moves the globe (desk-local target, uniform scale). */
   orbTo(x: number, y: number, z: number, scale: number): void {
+    this.skyBesideCaption = false;
     Object.assign(this.orbTarget, { x, y, z, scale });
   }
 
@@ -838,7 +845,11 @@ export class DeskVisuals {
     this.skyLines = 0;
     this.skyLinesTarget = complete ? 1 : 0.55;
     this.skyT = seconds;
-    if (!this.orbDirect && !this.menuOpen) this.orbTo(GLOBE_SHOW.x, GLOBE_SHOW.y, GLOBE_SHOW.z, GLOBE_SHOW.radius / LAMP.globe);
+    if (!this.orbDirect && !this.menuOpen) {
+      this.orbTo(GLOBE_SHOW.x, GLOBE_SHOW.y, GLOBE_SHOW.z, GLOBE_SHOW.radius / LAMP.globe);
+      // 29 Oct: never in front of the caption (the milestone's sentence comes with the sky): see the caption layout.
+      this.skyBesideCaption = true;
+    }
   }
 
   get skyShown(): boolean {
@@ -1464,7 +1475,19 @@ export class DeskVisuals {
       this.nearWordsNow.y = Math.max(0.12, Math.min(NEAR_WORDS.y, this.eyeLocal.y + 0.02));
     }
     this.captionDy = lift * 0.05 + tk * 0.03 + moonLift + wk * WORDS.lift * (1 - nk) + wk * nk * over;
-    onPane(this.layout, aside * CAPTION_ASIDE, this.captionDy, this.caption.position);
+    // 29 Oct (coordinator review): while the lamp shows your sky, the globe stands right of the caption's pill, as far
+    // as the pill's real width needs (seen from the seat); a very long sentence also slides the caption left.
+    let skyShift = 0;
+    if (this.skyBesideCaption && this.skyT > 0 && !this.orbDirect && !this.menuOpen) {
+      const halfW = 0.36 * this.caption.scale.x;
+      // The pill's right edge where the caption would stand without this shift (the canvas is wider than the pill).
+      const pillRight = aside * CAPTION_ASIDE + (this.captionCanvas.box.x1 - 0.5) * 2 * halfW;
+      const spot = skyGlobeLayout(pillRight, PANE.z(this.layout), { x: GLOBE_SHOW.x, z: GLOBE_SHOW.z, radius: GLOBE_SHOW.radius });
+      this.orbTarget.x = spot.x;
+      skyShift = cap.value > 0.004 ? spot.captionShift : 0;
+    }
+    this.skyCaptionShift = approach(this.skyCaptionShift, skyShift, 6, dt);
+    onPane(this.layout, aside * CAPTION_ASIDE + this.skyCaptionShift, this.captionDy, this.caption.position);
     this.wordChips.forEach((chip, i) => {
       chip.mesh.rotation.x = onNearPane(this.layout, (WORDS.x[0] + chip.col * WORDS.step) * this.chipK, WORDS.dy[chip.row] * this.chipK, nk, chip.mesh.position, this.nearWordsNow);
       const hover = chip.hover.step(dt);

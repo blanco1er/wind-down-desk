@@ -11,6 +11,7 @@
 import { makeHands } from './hands.mjs';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+class Blocked extends Error {}
 
 export default async function run({ frame, page, cdp }) {
   const f = frame ?? page;
@@ -39,11 +40,27 @@ export default async function run({ frame, page, cdp }) {
   cdp.on('Page.screencastFrame', onFrame);
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 20, maxWidth: 320, maxHeight: 180, everyNthFrame: 3 });
   const H = makeHands(f);
+  // 29 Oct: every wait is counted on the APP's clock (window.__wdd.clock().elapsed, which advances ≤ 50 ms per
+  // frame), never on the wall clock. On a slow machine (production in software rendering, ~2 frames/s) the app lives
+  // ~10× slower than real time: a wall-clock wait gave up before the night's replies existed, then touched a hidden
+  // button. A wall cap (20× + 5 s) still reports a frozen clock as a block.
+  const appNow = () => js(() => window.__wdd.clock().elapsed);
+  const realWait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const wait = async (ms) => {
+    const t = await appNow();
+    const cap = Date.now() + ms * 20 + 5000;
+    while (Date.now() < cap) {
+      if ((await appNow()) - t >= ms / 1000) return;
+      await realWait(Math.min(100, ms));
+    }
+  };
   const until = async (fn, ms, arg) => {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
+    const t = await appNow();
+    const cap = Date.now() + ms * 20 + 5000;
+    while (Date.now() < cap) {
       if (await js(fn, arg)) return true;
-      await wait(150);
+      if ((await appNow()) - t >= ms / 1000) return Boolean(await js(fn, arg));
+      await realWait(150);
     }
     return false;
   };
@@ -66,9 +83,13 @@ export default async function run({ frame, page, cdp }) {
     const presses = await js(() => window.__wdd.presses().last.slice(-3).join(','));
     log.push({ s: +((Date.now() - t0) / 1000).toFixed(1), step, mode: s.mode, phase: s.phase, ...extra, presses });
   };
+  // 29 Oct: a block ends the part (no step is logged as done after a BLOCKED).
+  let blocked = null;
   const fail = async (step) => {
     const s = await snap();
     log.push({ s: +((Date.now() - t0) / 1000).toFixed(1), step: `BLOCKED: ${step}`, ...s, presses: await js(() => window.__wdd.presses().last.slice(-4).join(',')) });
+    blocked = step;
+    throw new Blocked(step);
   };
   /** Draw calls per eye now (renderer.info / 2 in the emulator's stereo), max over ~1.2 s. */
   const measure = async (name) => {
@@ -151,6 +172,7 @@ export default async function run({ frame, page, cdp }) {
   await H.rest();
   const before = await js(() => ({ heap: performance.memory?.usedJSHeapSize ?? null }));
 
+  try {
   if (part === 1) {
     await until(() => ['table', 'floating'].includes(window.__wdd.state().placement), 10000);
     await mark('desk placed', { placement: await js(() => window.__wdd.state().placement), activeStones: await js(() => window.__wdd.state().tokens.filter((t) => !t.released).length) });
@@ -411,11 +433,15 @@ export default async function run({ frame, page, cdp }) {
     else await mark('"Lights out": the session ended by itself');
   }
 
+  } catch (e) {
+    if (!(e instanceof Blocked)) throw e;
+  }
+
   const after = await js(() => ({ heap: performance.memory?.usedJSHeapSize ?? null }));
   await cdp.send('Page.stopScreencast').catch(() => {});
   cdp.off?.('Page.screencastFrame', onFrame);
   page.off('console', onConsole);
   page.off('pageerror', onError);
   if (process.env.NET_DEBUG === '1') errors.push(...(await js(() => window.__netDebug ?? [])).map((text) => ({ s: 0, type: 'netdebug', text })));
-  return { part, seconds: +((Date.now() - t0) / 1000).toFixed(1), log, errors, draws, hands: H.stats, heapMB: [before.heap, after.heap].map((h) => (h == null ? null : +(h / 1048576).toFixed(1))) };
+  return { part, blocked, seconds: +((Date.now() - t0) / 1000).toFixed(1), log, errors, draws, hands: H.stats, heapMB: [before.heap, after.heap].map((h) => (h == null ? null : +(h / 1048576).toFixed(1))) };
 }

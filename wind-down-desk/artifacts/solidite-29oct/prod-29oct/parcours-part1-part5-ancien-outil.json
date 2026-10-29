@@ -1,0 +1,342 @@
+{
+ "base": "https://wind-down-desk.onrender.com",
+ "at": "2026-10-29T08:15:00.084Z",
+ "seconds": 316.1,
+ "results": [
+  {
+   "part": 1,
+   "seconds": 123,
+   "log": [
+    {
+     "s": 3.2,
+     "step": "desk placed",
+     "mode": "unload",
+     "phase": "dump",
+     "placement": "floating",
+     "activeStones": 0,
+     "presses": ""
+    },
+    {
+     "s": 13.8,
+     "step": "Unload started",
+     "mode": "unload",
+     "phase": "dump",
+     "proposal": null,
+     "presses": ""
+    },
+    {
+     "s": 40.4,
+     "step": "stone 1 pinched into tomorrow",
+     "mode": "unload",
+     "phase": "dump",
+     "ok": true,
+     "word": "Work",
+     "presses": "word:0"
+    },
+    {
+     "s": 66.2,
+     "step": "stone 2 pinched into later",
+     "mode": "unload",
+     "phase": "dump",
+     "ok": true,
+     "word": "Money",
+     "presses": "word:0,word:1"
+    },
+    {
+     "s": 88.2,
+     "step": "stone 3 pinched into let-go",
+     "mode": "unload",
+     "phase": "dump",
+     "ok": true,
+     "word": "Health",
+     "presses": "word:0,word:1,word:2"
+    },
+    {
+     "s": 103.8,
+     "step": "\"That's all\" touched",
+     "mode": "unload",
+     "phase": "plan",
+     "presses": "word:1,word:2,word:7"
+    },
+    {
+     "s": 123,
+     "step": "plan kept by touch",
+     "mode": "choose",
+     "phase": "night",
+     "presses": "word:2,word:7,keep"
+    },
+    {
+     "s": 123,
+     "step": "Unload done",
+     "mode": "choose",
+     "phase": "night",
+     "done": [
+      "unload"
+     ],
+     "presses": "word:2,word:7,keep"
+    }
+   ],
+   "errors": [],
+   "draws": {
+    "unload stone waiting": {
+     "perEyeP50": 15,
+     "perEyeMax": 15,
+     "device": 15,
+     "triangles": 57050,
+     "xr": true
+    },
+    "unload words back": {
+     "perEyeP50": 16,
+     "perEyeMax": 16,
+     "device": 16,
+     "triangles": 64354,
+     "xr": true
+    },
+    "plan card": {
+     "perEyeP50": 16,
+     "perEyeMax": 16,
+     "device": 16,
+     "triangles": 64326,
+     "xr": true
+    }
+   },
+   "hands": {
+    "pokes": 5,
+    "pokeMisses": [],
+    "grabs": 3,
+    "grabMisses": [],
+    "slides": 0
+   },
+   "heapMB": [
+    57.5,
+    57.5
+   ]
+  },
+  {
+   "part": 5,
+   "seconds": 161,
+   "log": [
+    {
+     "s": 96,
+     "step": "Good night: bead skipped by touch",
+     "mode": "night",
+     "phase": "night",
+     "out": 3,
+     "presses": "keep,ritual:sleep,immersion"
+    },
+    {
+     "s": 119.3,
+     "step": "BLOCKED: the lamp never asked to stay",
+     "mode": "night",
+     "phase": "night",
+     "words": [],
+     "replies": null,
+     "bead": null,
+     "proposal": null,
+     "menu": false,
+     "presses": "word:7,keep,ritual:sleep,immersion"
+    },
+    {
+     "s": 125.1,
+     "step": "night: the lamp asks",
+     "mode": "night",
+     "phase": "night",
+     "replies": null,
+     "ceiling": {
+      "y": 2.300000047683716,
+      "source": "dome"
+     },
+     "presses": "keep,ritual:sleep,immersion"
+    },
+    {
+     "s": 133.5,
+     "step": "night: \"Stay with me\", 10 min",
+     "mode": "night",
+     "phase": "night",
+     "sleep": null,
+     "presses": "keep,ritual:sleep,immersion"
+    },
+    {
+     "s": 138.2,
+     "step": "night: halfway through the fade",
+     "mode": "night",
+     "phase": "night",
+     "sleep": null,
+     "presses": "keep,ritual:sleep,immersion"
+    },
+    {
+     "s": 159.8,
+     "step": "BLOCKED: \"Lights out\" did not end the session",
+     "mode": "night",
+     "phase": "night",
+     "words": [],
+     "replies": [
+      "Stay with me",
+      "Good night"
+     ],
+     "bead": null,
+     "proposal": null,
+     "menu": false,
+     "presses": "word:7,keep,ritual:sleep,immersion"
+    }
+   ],
+   "errors": [],
+   "draws": {
+    "night sky on the ceiling": {
+     "perEyeP50": 16,
+     "perEyeMax": 16,
+     "device": 16,
+     "triangles": 64546,
+     "xr": true
+    },
+    "night: halfway through the fade": {
+     "perEyeP50": 16,
+     "perEyeMax": 16,
+     "device": 16,
+     "triangles": 64546,
+     "xr": true
+    }
+   },
+   "hands": {
+    "pokes": 1,
+    "pokeMisses": [
+     {
+      "action": "keep",
+      "why": "no Pressed",
+      "mode": "night"
+     },
+     {
+      "action": "keep",
+      "why": "hidden",
+      "mode": "night"
+     },
+     {
+      "action": "keep",
+      "why": "hidden",
+      "mode": "night"
+     }
+    ],
+    "grabs": 0,
+    "grabMisses": [],
+    "slides": 1
+   },
+   "heapMB": [
+    57.5,
+    57.5
+   ]
+  }
+ ],
+ "api": [
+  {
+   "s": "1.7",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "3.0",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "5.7",
+   "m": "GET",
+   "path": "health"
+  },
+  {
+   "s": "11.5",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "14.1",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "14.1",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "14.2",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "14.7",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "17.6",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "17.6",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "18.6",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "21.2",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "21.6",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "33.6",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "55.8",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "91.3",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "145.3",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "227.6",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "231.5",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "240.6",
+   "m": "POST",
+   "path": "visit"
+  },
+  {
+   "s": "252.5",
+   "m": "POST",
+   "path": "visit"
+  }
+ ],
+ "apiCount": 21,
+ "apiByPath": {
+  "visit": 20,
+  "health": 1
+ },
+ "pageErrors": []
+}

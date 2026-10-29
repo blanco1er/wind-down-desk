@@ -1,0 +1,7 @@
+{
+  "note": "3 evenings played by the in-page autopilot (tools/solidite-29oct/autopilot.mjs): no listener counter, no CDP network, no parcours scripts; heap read after a forced GC at the end of each evening. The 4th evening was lost when the loop was interrupted (page reloaded).",
+  "heapAfterGcMB": { "evening1": 155.13, "evening2": 156.37, "evening3": 157.98 },
+  "slopeMBPerEvening": 1.43,
+  "browserRunsPerEvening": "about 3 (keep-alive runs, each injecting one Playwright utility context ≈ 0.29 MB, measured by heap-diff: 30 contexts ≈ 8.7 MB)",
+  "instrumentedLoopSlopeMBPerEvening": 5.0
+}

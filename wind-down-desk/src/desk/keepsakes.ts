@@ -33,6 +33,7 @@ import { createPebbleGeometry, TRAY } from './geometry.ts';
 import { loadKtx2, ktx2Bytes } from './ktx2.ts';
 import { RIG, RIG_UNIFORMS, NOISE, timeUniform } from './materials.ts';
 import type { Keepsake } from '../logic/milestones.ts';
+import { KEEPSAKE_SHADOW, SHADOW_LIFT } from '../logic/keepsake-ground.ts';
 
 /**
  * Desk-local spots, on the table (below the tray floor), just left of the tray (its outer edge is at x = −0.42),
@@ -56,6 +57,8 @@ const RIBBON_ROWS = 14;
 const TEXTURED = 0;
 const FLAT = 1;
 const STEAMV = 2;
+/** 29 Oct: a soft contact shadow on the table under each keepsake (the saucer's rim no longer reads as floating). */
+const SHADOW = 3;
 
 interface Piece {
   geometry: BufferGeometry;
@@ -109,10 +112,24 @@ function steamRibbons(): BufferGeometry {
   return g;
 }
 
+/** A flat square on the table (uv 0..1 across it), the contact shadow's disc is drawn in the fragment shader. */
+function shadowQuad(radius: number): BufferGeometry {
+  const y = SHADOW_LIFT;
+  const r = radius;
+  const g = new BufferGeometry();
+  // Two triangles facing up (counter-clockwise seen from above).
+  g.setAttribute('position', new BufferAttribute(new Float32Array([-r, y, -r, -r, y, r, r, y, r, -r, y, -r, r, y, r, r, y, -r]), 3));
+  g.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0]), 2));
+  g.setAttribute('normal', new BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+  return g;
+}
+
 /** Merges pieces (desk-placed) and the steam into one non-indexed geometry with the attributes the shader reads. */
 function build(pieces: Piece[]): BufferGeometry {
   const steam = steamRibbons().toNonIndexed();
-  const all: Array<{ g: BufferGeometry; part: number; kind: number; color: [number, number, number] }> = pieces.map((p) => ({
+  // The contact shadows first in the buffer: drawn on the table before the keepsakes that stand on them.
+  const shadows: Piece[] = PARTS.map((k, part) => ({ geometry: shadowQuad(KEEPSAKE_SHADOW[k].radius), part, kind: SHADOW, color: [KEEPSAKE_SHADOW[k].dark, 0, 0] }));
+  const all: Array<{ g: BufferGeometry; part: number; kind: number; color: [number, number, number] }> = [...shadows, ...pieces].map((p) => ({
     g: p.geometry.index != null ? p.geometry.toNonIndexed() : p.geometry,
     part: p.part,
     kind: p.kind,
@@ -226,7 +243,7 @@ export class Keepsakes {
           if (part > 1.5) p = base + (p - base) * (0.82 + 0.18 * uGrow);
           vec4 w = modelMatrix * vec4(p, 1.0);
           vNormal = normalize(mat3(modelMatrix) * normal);
-          if (meta.y > 1.5) {
+          if (meta.y > 1.5 && meta.y < 2.5) {
             // Steam: a ribbon rising from the tea, facing the eye around the vertical, swaying slowly and widening.
             float t = uv.y;
             float rib = meta.z;
@@ -267,6 +284,15 @@ export class Keepsakes {
         ${RIG}
         void main() {
           vec3 V = normalize(cameraPosition - vWorld);
+          if (vMeta.y > 2.5) {
+            // 29 Oct: contact shadow: dark under the object, soft to nothing at its edge (albedo.r = its darkness).
+            float r = length(vUv * 2.0 - 1.0);
+            // Full under the object (its footprint ends at 0.75–0.8 of the radius), a short soft fade just beyond it.
+            float a = vAlbedo.r * (1.0 - smoothstep(0.7, 1.0, r)) * (0.8 + 0.2 * (1.0 - smoothstep(0.0, 0.6, r)));
+            if (a < 0.004) discard;
+            gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+            return;
+          }
           if (vMeta.y > 1.5) {
             // Steam: soft wisps drifting up (two octaves of noise scrolling upward), thin at the cup, fading as it rises.
             float t = vUv.y;

@@ -1,5 +1,6 @@
 // 29 Oct — the "one bus stop" test (Meta Start judging): a complete moment, hands only (no voice, no controller):
-// arrival → the bead skipped with one touch → Unload → two words touched → two stones pinched into bowls →
+// arrival → the bead skipped with one touch → Unload → (first evening: the example stone pinched into a bowl) →
+// two words touched → two stones pinched into bowls →
 // Good night → the bead skipped → the night → "Good night" touched → the session ends by itself.
 // Run right after a fresh stage (sh tools/stage.sh 54 30); the shell adds the stage time (reload + enter XR).
 //   npx @iwsdk/cli browser run tools/finition-29oct/bus-stop.mjs --timeout 108000
@@ -66,11 +67,23 @@ export default async function run({ frame, page, cdp }) {
   };
   const bins = ['tomorrow', 'let-go'];
   const usedWords = [];
+  // 29 Oct: on a first evening the example stone waits on the tray (the ghost hand shows the pinch), and the words
+  // fold away while a stone waits: it goes into a bowl first, then the two words.
+  const example = await js(() => window.__wdd.state().tokens.find((t) => t.bin == null && !t.released)?.id ?? null);
+  if (example != null) {
+    await grab(example, 'later');
+    mark('example stone in a bowl', { bins: await js(() => window.__wdd.state().tokens.map((x) => x.bin ?? (x.released ? 'released' : null))) });
+  }
   for (let k = 0; k < 2; k++) {
     await until(() => window.__wdd.debug().visuals.wordChips.some((c) => c.mesh.visible && c.label != null && !/Write/u.test(c.label)), 8000);
     await wait(400);
     // A topic not touched yet (a used one stays, dimmed).
     const i = await js((used) => window.__wdd.debug().visuals.wordChips.findIndex((c) => c.mesh.visible && c.label != null && !/Write|That/u.test(c.label) && !used.includes(c.label)), usedWords);
+    // 29 Oct: no word on show (a slow machine, the words not up yet) is a block, reported as such.
+    if (i < 0) {
+      mark(`BLOCKED: no word to touch before stone ${k + 1}`, await state());
+      break;
+    }
     usedWords.push(await js((x) => window.__wdd.debug().visuals.wordChips[x].label, i));
     await js((x) => window.__wdd.press(`word:${x}`), i);
     mark(`word ${k + 1} touched`, { words: (await state()).words, index: i });

@@ -1,0 +1,119 @@
+{
+ "scene": "high",
+ "session": {
+  "enabledFeatures": [
+   "local-floor",
+   "bounded-floor",
+   "hand-tracking",
+   "anchors",
+   "hit-test",
+   "plane-detection",
+   "mesh-detection",
+   "viewer",
+   "local"
+  ],
+  "denied": false
+ },
+ "placement": "table",
+ "source": "plane",
+ "surfaces": {
+  "planes": 7,
+  "meshes": [
+   "table@-1.54,0.789,0.20",
+   "shelf",
+   "table@1.26,0.452,-0.40",
+   "couch",
+   "table@2.52,0.608,1.02",
+   "table@-1.53,0.774,-1.19",
+   "lamp",
+   "lamp"
+  ],
+  "hits": 0,
+  "probe": "off",
+  "choice": {
+   "source": "plane",
+   "label": "table",
+   "y": 0.789,
+   "reach": 0.32
+  }
+ },
+ "anchor": "persisted",
+ "anchorLog": [
+  "anchored (plane, replace)",
+  "persisted 30806f30",
+  "deleted old handle fad28b8c"
+ ],
+ "mic": "off",
+ "origin": {
+  "x": -1.422017479422089,
+  "y": 0.8092325520515442,
+  "z": 0.20298452136731915
+ },
+ "reach": {
+  "bowlsFromEyes": [
+   0.74,
+   0.7,
+   0.74
+  ],
+  "bowlsFromShoulder": [
+   0.78,
+   0.69,
+   0.68
+  ],
+  "ritualsFromShoulder": 0.41,
+  "replyFromShoulder": 0.81,
+  "deskBelowEyes": 0.22
+ },
+ "pinched": true,
+ "keepWall": {
+  "id": "plane:78",
+  "center": {
+   "x": -2.9406475047352485,
+   "y": 1.941626906333217,
+   "z": -0.22507058954090775
+  },
+  "normal": {
+   "x": 0.9997598032769922,
+   "y": 0,
+   "z": 0.021916563406468133
+  },
+  "right": {
+   "x": -0.021916563406468133,
+   "y": 0,
+   "z": 0.9997598032769922
+  },
+  "halfWidth": 2.257014274597168,
+  "bottom": -0.002019524636021286,
+  "top": 3.885273337302455
+ },
+ "walls": 6,
+ "ceiling": {
+  "y": 3.8831064701080322,
+  "source": "plane"
+ },
+ "hands": {
+  "pokes": 11,
+  "pokeMisses": [
+   {
+    "action": "keep",
+    "why": "hidden",
+    "mode": "choose"
+   },
+   {
+    "action": "ritual:unload",
+    "why": "hidden",
+    "mode": "choose"
+   }
+  ],
+  "grabs": 1,
+  "grabMisses": [],
+  "slides": 0
+ },
+ "stills": [
+  "high-1-bureau.jpg",
+  "high-2-mots.jpg",
+  "high-3-pierre-posee.jpg",
+  "high-4-lumieres-keep.jpg",
+  "high-5-ciel-nuit.jpg"
+ ]
+}

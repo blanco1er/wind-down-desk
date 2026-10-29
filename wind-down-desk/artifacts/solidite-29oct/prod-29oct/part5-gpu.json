@@ -1,0 +1,825 @@
+{
+ "base": "https://wind-down-desk.onrender.com",
+ "mode": "part5",
+ "at": "2026-10-29T08:39:42.319Z",
+ "loadAvg": "25.32",
+ "result": {
+  "part": 5,
+  "blocked": null,
+  "seconds": 26.5,
+  "log": [
+   {
+    "s": 15.4,
+    "step": "night: the lamp asks",
+    "mode": "night",
+    "phase": "night",
+    "replies": [
+     "Stay with me",
+     "Good night"
+    ],
+    "ceiling": null,
+    "presses": "rituals,ritual:sleep"
+   },
+   {
+    "s": 19.7,
+    "step": "night: \"Stay with me\", 10 min",
+    "mode": "night",
+    "phase": "night",
+    "sleep": {
+     "minutes": 10,
+     "seconds": 3.5,
+     "boost": 0,
+     "k": 0.00580633333333284,
+     "light": 0.9998992509833831,
+     "sound": 0.9907260617035708,
+     "breathsPerMinute": 5.994193666666667,
+     "done": false
+    },
+    "presses": "ritual:sleep,keep,word:0"
+   },
+   {
+    "s": 22.5,
+    "step": "night: halfway through the fade",
+    "mode": "night",
+    "phase": "night",
+    "sleep": {
+     "minutes": 10,
+     "seconds": 306.3,
+     "boost": 0,
+     "k": 0.5104726666666658,
+     "light": 0.48429329721602843,
+     "sound": 0.31889162519648706,
+     "breathsPerMinute": 5.489527333333334,
+     "done": false
+    },
+    "presses": "ritual:sleep,keep,word:0"
+   },
+   {
+    "s": 26.4,
+    "step": "\"Lights out\": the session ended by itself",
+    "mode": "night",
+    "phase": "night",
+    "presses": "keep,word:0,keep"
+   }
+  ],
+  "errors": [
+   {
+    "s": 26.4,
+    "type": "warning",
+    "text": "THREE.WebGLRenderer: Can't change size while VR device is presenting."
+   }
+  ],
+  "draws": {
+   "night sky on the ceiling": {
+    "perEyeP50": 16,
+    "perEyeMax": 16,
+    "device": 16,
+    "triangles": 57294,
+    "xr": true
+   },
+   "night: halfway through the fade": {
+    "perEyeP50": 16,
+    "perEyeMax": 16,
+    "device": 16,
+    "triangles": 57302,
+    "xr": true
+   }
+  },
+  "hands": {
+   "pokes": 5,
+   "pokeMisses": [],
+   "grabs": 0,
+   "grabMisses": [],
+   "slides": 0
+  },
+  "heapMB": [
+   70.4,
+   74.6
+  ]
+ },
+ "samples": [
+  {
+   "wall": 0,
+   "mode": "unload",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 0.6,
+   "mode": "unload",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 1.1,
+   "mode": "unload",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 1.6,
+   "mode": "unload",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 2.1,
+   "mode": "unload",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 2.6,
+   "mode": "unload",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 3.1,
+   "mode": "unload",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 3.6,
+   "mode": "night",
+   "step": 0,
+   "appSince": 0.05,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 4.2,
+   "mode": "night",
+   "step": 0,
+   "appSince": 0.57,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 4.7,
+   "mode": "night",
+   "step": 0,
+   "appSince": 1.08,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 5.2,
+   "mode": "night",
+   "step": 0,
+   "appSince": 1.6,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 5.7,
+   "mode": "night",
+   "step": 0,
+   "appSince": 2.13,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 6.2,
+   "mode": "night",
+   "step": 1,
+   "appSince": 2.65,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 6.7,
+   "mode": "night",
+   "step": 1,
+   "appSince": 3.17,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 7.3,
+   "mode": "night",
+   "step": 1,
+   "appSince": 3.67,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 7.8,
+   "mode": "night",
+   "step": 1,
+   "appSince": 4.2,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 8.3,
+   "mode": "night",
+   "step": 1,
+   "appSince": 4.7,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 8.8,
+   "mode": "night",
+   "step": 1,
+   "appSince": 5.22,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 9.3,
+   "mode": "night",
+   "step": 1,
+   "appSince": 5.73,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 9.8,
+   "mode": "night",
+   "step": 1,
+   "appSince": 6.25,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 10.3,
+   "mode": "night",
+   "step": 1,
+   "appSince": 6.77,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 10.8,
+   "mode": "night",
+   "step": 1,
+   "appSince": 7.27,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 11.4,
+   "mode": "night",
+   "step": 1,
+   "appSince": 7.78,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 11.9,
+   "mode": "night",
+   "step": 1,
+   "appSince": 8.3,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 12.4,
+   "mode": "night",
+   "step": 1,
+   "appSince": 8.82,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 12.9,
+   "mode": "night",
+   "step": 1,
+   "appSince": 9.32,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 13.4,
+   "mode": "night",
+   "step": 2,
+   "appSince": 9.83,
+   "sleep": null,
+   "replies": [
+    "Stay with me",
+    "Good night"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 13.9,
+   "mode": "night",
+   "step": 2,
+   "appSince": 10.33,
+   "sleep": null,
+   "replies": [
+    "Stay with me",
+    "Good night"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 14.4,
+   "mode": "night",
+   "step": 2,
+   "appSince": 10.85,
+   "sleep": null,
+   "replies": [
+    "Stay with me",
+    "Good night"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 14.9,
+   "mode": "night",
+   "step": 2,
+   "appSince": 11.37,
+   "sleep": null,
+   "replies": [
+    "Stay with me",
+    "Good night"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 15.5,
+   "mode": "night",
+   "step": 2,
+   "appSince": 11.87,
+   "sleep": null,
+   "replies": [
+    "Stay with me",
+    "Good night"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 16,
+   "mode": "night",
+   "step": 2,
+   "appSince": 12.38,
+   "sleep": null,
+   "replies": [
+    "Stay with me",
+    "Good night"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 16.5,
+   "mode": "night",
+   "step": 3,
+   "appSince": 12.88,
+   "sleep": 0.2,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 17,
+   "mode": "night",
+   "step": 3,
+   "appSince": 13.4,
+   "sleep": 0.7,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 17.5,
+   "mode": "night",
+   "step": 3,
+   "appSince": 13.93,
+   "sleep": 1.3,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 18,
+   "mode": "night",
+   "step": 3,
+   "appSince": 14.43,
+   "sleep": 1.8,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 18.5,
+   "mode": "night",
+   "step": 3,
+   "appSince": 14.95,
+   "sleep": 2.3,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 19,
+   "mode": "night",
+   "step": 3,
+   "appSince": 15.45,
+   "sleep": 2.8,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 19.6,
+   "mode": "night",
+   "step": 3,
+   "appSince": 15.97,
+   "sleep": 3.3,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 20.1,
+   "mode": "night",
+   "step": 3,
+   "appSince": 16.5,
+   "sleep": 303.8,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 20.6,
+   "mode": "night",
+   "step": 3,
+   "appSince": 17.02,
+   "sleep": 304.4,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 21.1,
+   "mode": "night",
+   "step": 3,
+   "appSince": 17.53,
+   "sleep": 304.9,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": true
+  },
+  {
+   "wall": 21.6,
+   "mode": "night",
+   "step": 3,
+   "appSince": 18.05,
+   "sleep": 305.4,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 22.1,
+   "mode": "night",
+   "step": 3,
+   "appSince": 18.55,
+   "sleep": 305.9,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 22.7,
+   "mode": "night",
+   "step": 3,
+   "appSince": 19.08,
+   "sleep": 306.4,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 23.2,
+   "mode": "night",
+   "step": 3,
+   "appSince": 19.6,
+   "sleep": 306.9,
+   "replies": [
+    "Lights out"
+   ],
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 23.7,
+   "mode": "night",
+   "step": 4,
+   "appSince": 20.12,
+   "sleep": null,
+   "replies": null,
+   "keepShown": true,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 24.2,
+   "mode": "night",
+   "step": 4,
+   "appSince": 20.63,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 24.7,
+   "mode": "night",
+   "step": 4,
+   "appSince": 21.13,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 25.2,
+   "mode": "night",
+   "step": 4,
+   "appSince": 21.65,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 25.7,
+   "mode": "night",
+   "step": 4,
+   "appSince": 22.15,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 26.2,
+   "mode": "night",
+   "step": 4,
+   "appSince": 22.67,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": true
+  },
+  {
+   "wall": 26.7,
+   "mode": "night",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.6,
+   "xr": false
+  },
+  {
+   "wall": 27.3,
+   "mode": "night",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": false
+  },
+  {
+   "wall": 27.8,
+   "mode": "night",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": false
+  },
+  {
+   "wall": 28.4,
+   "mode": "night",
+   "step": null,
+   "appSince": null,
+   "sleep": null,
+   "replies": null,
+   "keepShown": false,
+   "keepPoke": true,
+   "frameMsP50": 16.7,
+   "xr": false
+  }
+ ],
+ "apiByPath": {
+  "visit": 16,
+  "health": 1
+ },
+ "pageErrors": []
+}

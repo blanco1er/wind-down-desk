@@ -1,0 +1,80 @@
+{
+ "scene": "denied",
+ "session": {
+  "enabledFeatures": [
+   "local-floor",
+   "bounded-floor",
+   "hand-tracking",
+   "viewer",
+   "local"
+  ],
+  "denied": true
+ },
+ "placement": "floating",
+ "source": "floating",
+ "surfaces": {
+  "planes": 0,
+  "meshes": [],
+  "hits": 0,
+  "probe": "unsupported",
+  "choice": null
+ },
+ "anchor": "anchoring",
+ "anchorLog": [
+  "anchors feature not granted",
+  "moved (floating)"
+ ],
+ "mic": "denied",
+ "origin": {
+  "x": -1.2599999737739547,
+  "y": 0.7000000476837158,
+  "z": 0.20000003999149163
+ },
+ "reach": {
+  "bowlsFromEyes": [
+   0.74,
+   0.69,
+   0.74
+  ],
+  "bowlsFromShoulder": [
+   0.7,
+   0.59,
+   0.58
+  ],
+  "ritualsFromShoulder": 0.42,
+  "replyFromShoulder": 0.68,
+  "deskBelowEyes": 0.5
+ },
+ "pinched": true,
+ "keepWall": null,
+ "walls": 0,
+ "ceiling": {
+  "y": 2.300000047683716,
+  "source": "dome"
+ },
+ "hands": {
+  "pokes": 11,
+  "pokeMisses": [
+   {
+    "action": "keep",
+    "why": "hidden",
+    "mode": "choose"
+   },
+   {
+    "action": "ritual:unload",
+    "why": "hidden",
+    "mode": "choose"
+   }
+  ],
+  "grabs": 1,
+  "grabMisses": [],
+  "slides": 0
+ },
+ "stills": [
+  "denied-1-bureau.jpg",
+  "denied-2-mots.jpg",
+  "denied-3-pierre-posee.jpg",
+  "denied-4-lumieres-keep.jpg",
+  "denied-5-ciel-nuit.jpg"
+ ]
+}

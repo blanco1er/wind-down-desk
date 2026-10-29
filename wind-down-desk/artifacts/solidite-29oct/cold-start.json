@@ -1,0 +1,47 @@
+[
+  {
+    "run": "fast, cold",
+    "landingReadyS": 1.5,
+    "mbToLanding": 4.48,
+    "afterBegin": {
+      "app": 0.26,
+      "xr": 2.58,
+      "placed": 4.78,
+      "lampLit": 4.95,
+      "deskRevealed": 7.06,
+      "interface": 8.76
+    },
+    "mbTotal": 6.01,
+    "errors": []
+  },
+  {
+    "run": "8 Mbit/s, cold",
+    "landingReadyS": 5.34,
+    "mbToLanding": 4.48,
+    "afterBegin": {
+      "app": 0.06,
+      "xr": 0.18,
+      "placed": 2.37,
+      "lampLit": 2.58,
+      "deskRevealed": 4.64,
+      "interface": 6.37
+    },
+    "mbTotal": 6.01,
+    "errors": []
+  },
+  {
+    "run": "8 Mbit/s, second visit (cache)",
+    "landingReadyS": 1.04,
+    "mbToLanding": 0.07,
+    "afterBegin": {
+      "app": 0.05,
+      "xr": 0.19,
+      "placed": 0.7,
+      "lampLit": 0.87,
+      "deskRevealed": 3,
+      "interface": 4.67
+    },
+    "mbTotal": 0.09,
+    "errors": []
+  }
+]

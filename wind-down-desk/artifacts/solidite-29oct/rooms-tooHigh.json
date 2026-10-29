@@ -1,0 +1,109 @@
+{
+ "scene": "tooHigh",
+ "session": {
+  "enabledFeatures": [
+   "local-floor",
+   "bounded-floor",
+   "hand-tracking",
+   "anchors",
+   "hit-test",
+   "plane-detection",
+   "mesh-detection",
+   "viewer",
+   "local"
+  ],
+  "denied": false
+ },
+ "placement": "floating",
+ "source": "floating",
+ "surfaces": {
+  "planes": 7,
+  "meshes": [
+   "table@-1.54,0.789,0.20",
+   "shelf",
+   "table@1.26,0.452,-0.40",
+   "couch",
+   "table@2.52,0.608,1.02",
+   "table@-1.53,0.774,-1.19",
+   "lamp",
+   "lamp"
+  ],
+  "hits": 0,
+  "probe": "off",
+  "choice": null
+ },
+ "anchor": "persisted",
+ "anchorLog": [
+  "anchored (floating, replace)",
+  "persisted ce3301a1",
+  "deleted old handle 118fc266"
+ ],
+ "mic": "off",
+ "origin": {
+  "x": -1.2599999737739547,
+  "y": 0.8092325520515442,
+  "z": 0.20000003999149163
+ },
+ "reach": {
+  "bowlsFromEyes": [
+   0.58,
+   0.53,
+   0.58
+  ],
+  "bowlsFromShoulder": [
+   0.65,
+   0.53,
+   0.52
+  ],
+  "ritualsFromShoulder": 0.3,
+  "replyFromShoulder": 0.67,
+  "deskBelowEyes": 0.17
+ },
+ "pinched": true,
+ "keepWall": {
+  "id": "plane:78",
+  "center": {
+   "x": -2.9406475047352485,
+   "y": 1.941626906333217,
+   "z": -0.22507058954090775
+  },
+  "normal": {
+   "x": 0.9997598032769922,
+   "y": 0,
+   "z": 0.021916563406468133
+  },
+  "right": {
+   "x": -0.021916563406468133,
+   "y": 0,
+   "z": 0.9997598032769922
+  },
+  "halfWidth": 2.257014274597168,
+  "bottom": -0.002019524636021286,
+  "top": 3.885273337302455
+ },
+ "walls": 6,
+ "ceiling": {
+  "y": 3.8831064701080322,
+  "source": "plane"
+ },
+ "hands": {
+  "pokes": 12,
+  "pokeMisses": [
+   {
+    "action": "keep",
+    "why": "hidden",
+    "mode": "choose"
+   }
+  ],
+  "grabs": 1,
+  "grabMisses": [],
+  "slides": 0
+ },
+ "stills": [
+  "tooHigh-1-bureau.jpg",
+  "tooHigh-2-mots.jpg",
+  "tooHigh-3-pierre-posee.jpg",
+  "tooHigh-4-lumieres-keep.jpg",
+  "tooHigh-5-ciel-nuit.jpg"
+ ]
+}

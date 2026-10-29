@@ -1,0 +1,296 @@
+{
+ "at": "2026-10-29T08:59:11.223Z",
+ "playerLocked": true,
+ "window": "66 x 62 deg (±33° × ±31°)",
+ "placement": "floating",
+ "walls": {
+  "count": 0,
+  "picked": false
+ },
+ "keepLights": {
+  "slots": 3,
+  "mode": "choose",
+  "count": 3,
+  "tonight": [
+   "My sister called",
+   "Warm tea",
+   "The walk home"
+  ],
+  "lights": 3
+ },
+ "journal": {
+  "open": true,
+  "index": 0,
+  "entries": 7,
+  "week": "This week you let go of 14 things. And kept 3 good things.",
+  "star": -1,
+  "stars": 14
+ },
+ "night": {
+  "step": 2,
+  "ceiling": {
+   "y": 2.2800000667572022,
+   "source": "dome"
+  },
+  "lines": 8
+ },
+ "report": {
+  "ritual-menu": {
+   "rows": [
+    {
+     "eye": 0.4,
+     "element": null,
+     "union": [
+      -24.4,
+      33.2,
+      -31.6,
+      -3.9
+     ],
+     "width": 57.6,
+     "height": 27.7,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.48,
+     "element": null,
+     "union": [
+      -24.4,
+      33.9,
+      -36.4,
+      -9.1
+     ],
+     "width": 58.3,
+     "height": 27.3,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.56,
+     "element": null,
+     "union": [
+      -24.4,
+      33.9,
+      -40.7,
+      -13.5
+     ],
+     "width": 58.3,
+     "height": 27.2,
+     "fits": true,
+     "essentialsOutside": []
+    }
+   ],
+   "fitsAll": true,
+   "shot": "video/prod-29oct/fov-66/ritual-menu.png",
+   "alone": false
+  },
+  "volumes": {
+   "rows": [
+    {
+     "eye": 0.4,
+     "element": [
+      -14.8,
+      12.5,
+      -44.4,
+      -31.6
+     ],
+     "union": [
+      -24.4,
+      33.2,
+      -44.4,
+      -5.1
+     ],
+     "width": 57.6,
+     "height": 39.3,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.48,
+     "element": [
+      -14.8,
+      12.5,
+      -49.7,
+      -36.7
+     ],
+     "union": [
+      -24.4,
+      33.2,
+      -49.7,
+      -9
+     ],
+     "width": 57.6,
+     "height": 40.7,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.56,
+     "element": [
+      -14.8,
+      12.5,
+      -54,
+      -41.2
+     ],
+     "union": [
+      -24.4,
+      33.2,
+      -54,
+      -13.7
+     ],
+     "width": 57.6,
+     "height": 40.3,
+     "fits": true,
+     "essentialsOutside": []
+    }
+   ],
+   "fitsAll": true,
+   "shot": "video/prod-29oct/fov-66/volumes.png",
+   "alone": false
+  },
+  "keep-wall": {
+   "rows": [
+    {
+     "eye": 0.4,
+     "element": [
+      -11.6,
+      22,
+      -21.6,
+      -21
+     ],
+     "union": [
+      -24.4,
+      33.9,
+      -31.6,
+      -4.7
+     ],
+     "width": 58.3,
+     "height": 26.9,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.48,
+     "element": [
+      -11.6,
+      22,
+      -25.9,
+      -25.3
+     ],
+     "union": [
+      -24.4,
+      33.9,
+      -36.4,
+      -9.2
+     ],
+     "width": 58.3,
+     "height": 27.2,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.56,
+     "element": [
+      -11.6,
+      22,
+      -29.9,
+      -29.3
+     ],
+     "union": [
+      -24.4,
+      33.9,
+      -40.7,
+      -13.5
+     ],
+     "width": 58.3,
+     "height": 27.2,
+     "fits": true,
+     "essentialsOutside": []
+    }
+   ],
+   "fitsAll": true,
+   "shot": "video/prod-29oct/fov-66/keep-wall.png",
+   "alone": false
+  },
+  "journal": {
+   "rows": [
+    {
+     "eye": 0.4,
+     "element": [
+      -20.7,
+      12.5,
+      -26.5,
+      -6
+     ],
+     "union": [
+      -24.4,
+      33.2,
+      -32.2,
+      -6
+     ],
+     "width": 57.6,
+     "height": 26.2,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.48,
+     "element": [
+      -20.7,
+      12.5,
+      -31.3,
+      -10.9
+     ],
+     "union": [
+      -24.4,
+      33.2,
+      -37.3,
+      -10.9
+     ],
+     "width": 57.6,
+     "height": 26.4,
+     "fits": true,
+     "essentialsOutside": []
+    },
+    {
+     "eye": 0.56,
+     "element": [
+      -20.7,
+      12.5,
+      -35.6,
+      -15.6
+     ],
+     "union": [
+      -24.4,
+      33.2,
+      -41.8,
+      -15.6
+     ],
+     "width": 57.6,
+     "height": 26.2,
+     "fits": true,
+     "essentialsOutside": []
+    }
+   ],
+   "fitsAll": true,
+   "shot": "video/prod-29oct/fov-66/journal.png",
+   "alone": false
+  },
+  "night-sky": {
+   "sky": {
+    "stars": 14,
+    "coneHalfDeg": 31.8,
+    "boxDeg": [
+     41.3,
+     47.5
+    ],
+    "elevationDeg": 70.1,
+    "fits": true,
+    "discHalfDeg": 53.9,
+    "shot": "video/prod-29oct/fov-66/night-sky.png"
+   },
+   "fitsAll": true,
+   "alone": true
+  }
+ }
+}

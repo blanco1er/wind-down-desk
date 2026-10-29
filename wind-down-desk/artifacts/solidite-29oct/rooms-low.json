@@ -1,0 +1,89 @@
+{
+ "scene": "low",
+ "session": {
+  "enabledFeatures": [
+   "local-floor",
+   "bounded-floor",
+   "hand-tracking",
+   "anchors",
+   "hit-test",
+   "plane-detection",
+   "mesh-detection",
+   "viewer",
+   "local"
+  ],
+  "denied": false
+ },
+ "placement": "floating",
+ "source": "floating",
+ "surfaces": {
+  "planes": 7,
+  "meshes": [
+   "table@-1.54,0.789,0.20",
+   "shelf",
+   "table@1.26,0.452,-0.40",
+   "couch",
+   "table@2.52,0.608,1.02",
+   "table@-1.53,0.774,-1.19",
+   "lamp",
+   "lamp"
+  ],
+  "hits": 0,
+  "probe": "off",
+  "choice": null
+ },
+ "anchor": "persisted",
+ "anchorLog": [
+  "anchored (floating, replace)",
+  "persisted 4a732c17",
+  "deleted old handle b7beebf6"
+ ],
+ "mic": "off",
+ "origin": {
+  "x": 1.6999998855590845,
+  "y": 0.6000000238418579,
+  "z": -0.39999995948356815
+ },
+ "reach": {
+  "bowlsFromEyes": [
+   0.74,
+   0.69,
+   0.74
+  ],
+  "bowlsFromShoulder": [
+   0.7,
+   0.59,
+   0.58
+  ],
+  "ritualsFromShoulder": 0.42,
+  "replyFromShoulder": 0.68,
+  "deskBelowEyes": 0.5
+ },
+ "pinched": true,
+ "keepWall": null,
+ "walls": 6,
+ "ceiling": {
+  "y": 3.8831064701080322,
+  "source": "plane"
+ },
+ "hands": {
+  "pokes": 12,
+  "pokeMisses": [
+   {
+    "action": "keep",
+    "why": "hidden",
+    "mode": "choose"
+   }
+  ],
+  "grabs": 1,
+  "grabMisses": [],
+  "slides": 0
+ },
+ "stills": [
+  "low-1-bureau.jpg",
+  "low-2-mots.jpg",
+  "low-3-pierre-posee.jpg",
+  "low-4-lumieres-keep.jpg",
+  "low-5-ciel-nuit.jpg"
+ ]
+}
