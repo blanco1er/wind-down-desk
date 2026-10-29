@@ -66,13 +66,13 @@ export default async function run({ frame, page, cdp, workspaceRoot }) {
     await wait(800);
     await mark('volumes: opened by holding Sound, Done by touch', { replies: mixReplies, closed: !(await js(() => window.__wdd.mix().open)) });
   }
-  // The night: the menu's Good night row; the bead skipped by touch; Stay with me; 10 min; Lights out.
+  // The night: the menu's Good night row; the bead skipped by touch; the closing line; Lights out.
   if (!(await js(() => window.__wdd.debug().visuals.ritualMenuOpen))) await js(() => window.__wdd.press('rituals'));
   await wait(700);
   await js(() => window.__wdd.press('ritual:sleep'));
   if (await until(() => window.__wdd.tension().side === 'out', 4000)) { await wait(600); await js(() => window.__wdd.press('keep')); }
-  await until(() => window.__wdd.night().step === 2, 20000);
-  await mark('night: the lamp asks', { ceiling: (await js(() => window.__wdd.night())).ceiling, replies: await replies() });
+  await until(() => window.__wdd.night().sleep != null, 20000);
+  await mark('night: the closing line', { ceiling: (await js(() => window.__wdd.night())).ceiling, replies: await replies() });
   if (scene === 'blind') {
     await js(([p, y]) => { const rad = Math.PI / 180; const sy = Math.sin((y * rad) / 2), cy = Math.cos((y * rad) / 2), sx = Math.sin((p * rad) / 2), cx = Math.cos((p * rad) / 2); window.IWER_DEVICE.quaternion.set(cy * sx, sy * cx, -sy * sx, cy * cx); }, [50, 90]);
     await wait(1500);
@@ -80,12 +80,7 @@ export default async function run({ frame, page, cdp, workspaceRoot }) {
     await js(([p, y]) => { const rad = Math.PI / 180; const sy = Math.sin((y * rad) / 2), cy = Math.cos((y * rad) / 2), sx = Math.sin((p * rad) / 2), cx = Math.cos((p * rad) / 2); window.IWER_DEVICE.quaternion.set(cy * sx, sy * cx, -sy * sx, cy * cx); }, [-30, 90]);
   }
   await wait(600);
-  await js(() => window.__wdd.press('keep'));
-  await wait(1200);
-  const words = await js(() => window.__wdd.debug().visuals.wordChips.filter((c) => c.mesh.visible).map((c) => c.label));
-  await touchWord('10 min');
-  await wait(800);
-  await mark('night: stay, 10 min by touch', { words, sleep: (await js(() => window.__wdd.night())).sleep?.minutes ?? null, replies: await replies() });
+  await mark('night: the fade, one button', { sleep: (await js(() => window.__wdd.night())).sleep?.seconds ?? null, replies: await replies() });
   await js(() => window.__wdd.press('keep'));
   const ended = await until(() => !window.__wdd.perf().xr, 15000);
   await mark(ended ? 'session ended by "Lights out"' : 'session still open');

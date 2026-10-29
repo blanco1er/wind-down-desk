@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { goodThing, isKeepDone, KEEP_CHOICES, KEEP_LINES, keepChoices, keepLine, keptPlace } from '../src/logic/keep.ts';
+import { goodThing, isKeepDone, KEEP_CHOICES, KEPT_CROWN, KEEP_LINES, keepChoices, keepLine, keptCrown, keptPlace, keptSummary } from '../src/logic/keep.ts';
 import { dateLabel, entryRows, entrySubtitle, isJournalCommand, journalEntries, parseJournalCommand, recurring, weekSummary } from '../src/logic/journal.ts';
-import { ceilingPoint, CEILING_CONE_DEG, DimGesture, dimStrokeSeconds, findCeiling, parseSleepCommand, SLEEP_LINES, sleepLevels } from '../src/logic/sleep.ts';
+import { ceilingPoint, CEILING_CONE_DEG, DimGesture, dimStrokeSeconds, findCeiling, parseSleepCommand, SLEEP_CLOSE_SUB, SLEEP_FADE_S, SLEEP_LINES, sleepLevels } from '../src/logic/sleep.ts';
 import { RitualMemory, type KeyValueStore, type NightRecord } from '../src/logic/memory.ts';
 import { lampLines, lineKey } from '../src/logic/lamp-lines.ts';
 import { parseRitualCommand, proposeRitual } from '../src/logic/evening.ts';
@@ -114,19 +114,21 @@ test('journal by voice', () => {
 
 // ------------------------------------------------------------------ The night
 
-test('stay till I sleep: light and sound sink slowly, the breath slows from 6 to 5, then it ends', () => {
-  const a = sleepLevels(0, 20);
+test('the close: light and sound sink together over about 20 s, the breath slows from 6 to 5, then it ends', () => {
+  const a = sleepLevels(0);
   assert.equal(a.light, 1);
   assert.equal(a.sound, 1);
   assert.equal(a.breathsPerMinute, 6);
-  const mid = sleepLevels(600, 20);
+  assert.equal(SLEEP_FADE_S, 20, 'nobody sleeps in a headset: a short fade, no timer');
+  const mid = sleepLevels(10);
   assert.ok(mid.light > 0.4 && mid.light < 0.6);
   assert.ok(mid.sound < mid.light, 'sound a little ahead of the light');
-  const end = sleepLevels(1200, 20);
+  const end = sleepLevels(20);
   assert.equal(end.done, true);
   assert.equal(end.breathsPerMinute, 5);
-  assert.equal(sleepLevels(0, 10, dimStrokeSeconds(10) * 7).done, true, 'seven dimmer strokes end a 10-minute fade');
-  for (let t = 0; t < 1200; t += 30) assert.ok(sleepLevels(t + 30, 20).light <= sleepLevels(t, 20).light, 'never brighter');
+  assert.equal(sleepLevels(0, dimStrokeSeconds() * 7).done, true, 'seven dimmer strokes end the fade');
+  for (let t = 0; t < 20; t += 0.5) assert.ok(sleepLevels(t + 0.5).light <= sleepLevels(t).light, 'never brighter');
+  assert.equal(SLEEP_CLOSE_SUB, 'You can take the headset off now.');
 });
 
 test('the dimmer: an open hand lowered 10 cm; once per stroke; a fist or a lost hand never counts', () => {
@@ -147,9 +149,9 @@ test('the dimmer: an open hand lowered 10 cm; once per stroke; a fist or a lost 
 });
 
 test('the night by voice', () => {
-  assert.deepEqual(parseSleepCommand('stay with me'), { type: 'stay' });
-  assert.deepEqual(parseSleepCommand('twenty minutes'), { type: 'minutes', minutes: 20 });
-  assert.deepEqual(parseSleepCommand('half an hour'), { type: 'minutes', minutes: 30 });
+  // 29 Oct: no sleep timer any more — "stay" and minutes are not night commands.
+  assert.equal(parseSleepCommand('stay with me'), null);
+  assert.equal(parseSleepCommand('twenty minutes'), null);
   assert.deepEqual(parseSleepCommand('lights out'), { type: 'leave' });
   assert.deepEqual(parseSleepCommand('dimmer'), { type: 'dimmer' });
   assert.equal(parseSleepCommand('i stayed late at work'), null);
@@ -187,4 +189,38 @@ test('ceiling stars stay inside the 50° cone above the seat, and on the ceiling
 test('every new line is voiced', () => {
   const keys = new Set(lampLines().map(lineKey));
   for (const line of [...Object.values(KEEP_LINES), ...Object.values(SLEEP_LINES)]) assert.ok(keys.has(lineKey(line)), line);
+});
+
+test('Your sky: one or two true sentences about what was kept and let go (nothing invented)', () => {
+  const n = (date: string, kept: string[], letGo: string[] = []): NightRecord => ({ date, tomorrow: [], later: [], letGo, plan: [], planKept: false, kept });
+  assert.equal(keptSummary([], '2026-10-29'), 'Your sky starts tonight. Keep a good thing, or let one go.');
+  assert.equal(keptSummary([n('2026-10-29', [], ['Work'])], '2026-10-29'), 'One star for what you let go.');
+  assert.equal(keptSummary([n('2026-10-28', ['A good meal']), n('2026-10-29', ['Rest'])], '2026-10-29'), 'Two good things these two weeks.');
+  const nights = [n('2026-10-10', ['Old thing']), n('2026-10-27', ['Someone kind', 'A good meal'], ['Work', 'Money']), n('2026-10-29', ['someone kind', 'Rest'], ['Taxes'])];
+  assert.equal(keptSummary(nights, '2026-10-29'), 'Four good things these two weeks, and three stars for what you let go. Someone kind came back twice.', 'older than 14 days does not count; the stars count all evenings');
+});
+
+test('Your sky: the kept lights float in a crown around the seat, in front, never under the desk glass', () => {
+  const head = { x: 0, y: 1.2, z: 0 };
+  const forward = { x: 0, z: -1 };
+  for (const n of [1, 3, 12, 36]) {
+    const seen: Array<{ x: number; y: number; z: number }> = [];
+    for (let i = 0; i < n; i++) {
+      const p = keptCrown(i, n, (i * 2654435761) >>> 0, head, forward);
+      const dx = p.x - head.x;
+      const dy = p.y - head.y;
+      const dz = p.z - head.z;
+      const flat = Math.hypot(dx, dz);
+      const dist = Math.hypot(flat, dy);
+      assert.ok(dist >= KEPT_CROWN.near - 1e-6 && dist <= KEPT_CROWN.far + 1e-6, `distance ${dist}`);
+      const yaw = (Math.atan2(dx, -dz) * 180) / Math.PI;
+      assert.ok(Math.abs(yaw) <= KEPT_CROWN.yaw + 1e-6, `yaw ${yaw}`);
+      const pitch = (Math.atan2(dy, flat) * 180) / Math.PI;
+      assert.ok(pitch >= KEPT_CROWN.low - 1e-6 && pitch <= KEPT_CROWN.high + 1e-6, `pitch ${pitch}`);
+      for (const q of seen) assert.ok(Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) > 0.03, 'no two lights on top of each other');
+      seen.push(p);
+    }
+  }
+  const newest = keptCrown(35, 36, 7, head, forward);
+  assert.ok(Math.abs(Math.atan2(newest.x, -newest.z)) < (40 * Math.PI) / 180, 'the newest stays near the middle');
 });

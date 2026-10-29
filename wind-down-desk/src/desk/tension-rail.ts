@@ -24,7 +24,7 @@ import { RAIL, TENSION_MAX } from '../logic/tension.ts';
 import { RIG, RIG_UNIFORMS, timeUniform } from './materials.ts';
 import { DS } from './design-tokens.ts';
 
-const FONT = '"Manrope", "Helvetica Neue", Arial, sans-serif';
+const FONT = '"General Sans", "Helvetica Neue", Arial, sans-serif';
 
 type Part = 0 | 1 | 2 | 3 | 4;
 

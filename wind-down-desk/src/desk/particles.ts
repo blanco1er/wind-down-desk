@@ -104,7 +104,9 @@ export class LightField {
    * the one star picked in the journal (−1: none). */
   readonly skyUniforms = { uStarDim: { value: 1 }, uStarBreath: { value: 0 }, uPick: { value: -1 }, uPickK: { value: 0 }, uKeptHush: { value: 0 } };
   /** 29 Oct: the kept word (texture, where its light is, how visible). */
-  private readonly wordUniforms = { uWord: { value: null as CanvasTexture | null }, uWordPos: { value: new Vector3() }, uWordK: { value: 0 }, uWordSide: { value: 1 } };
+  private readonly wordUniforms = { uWord: { value: null as CanvasTexture | null }, uWordPos: { value: new Vector3() }, uWordK: { value: 0 }, uWordSide: { value: 1 }, uWordAbove: { value: 0 } };
+  /** 29 Oct (Your sky): the word of the light you look at, held above it while you look (null: none). */
+  private focus: { text: string; pos: Vector3; on: boolean; k: number; at: number } | null = null;
   private readonly wordCanvas: HTMLCanvasElement | null;
   private word: { at: number; light: KeptLight } | null = null;
   /** Tonight's kept lights that light the desk (newest last). */
@@ -176,6 +178,7 @@ export class LightField {
         uniform vec3 uWordPos;
         uniform float uWordK;
         uniform float uWordSide;
+        uniform float uWordAbove;
         varying vec2 vUv;
         varying vec3 vColor;
         varying float vAlpha;
@@ -209,8 +212,9 @@ export class LightField {
             vAlpha = uWordK;
             vec4 mv = modelViewMatrix * vec4(uWordPos, 1.0);
             float ws = max(1.0, -mv.z / 0.85);
-            mv.x += uWordSide * ${(KEPT_QUAD * 0.2 + WORD_SIZE.w * 0.5).toFixed(4)} * ws;
-            mv.y += 0.004 * ws;
+            // Beside its light (a light just kept), or centred above it (Your sky: the light you look at).
+            mv.x += uWordSide * ${(KEPT_QUAD * 0.2 + WORD_SIZE.w * 0.5).toFixed(4)} * ws * (1.0 - uWordAbove);
+            mv.y += (0.004 + 0.04 * uWordAbove) * ws;
             mv.xy += position.xy * vec2(${WORD_SIZE.w.toFixed(3)}, ${WORD_SIZE.h.toFixed(3)}) * ws * step(0.002, uWordK);
             gl_Position = projectionMatrix * mv;
             return;
@@ -606,9 +610,9 @@ export class LightField {
       size -= 2;
       ctx.font = `600 ${size}px ${FONT}`;
     }
-    // The text hugs the light: left-aligned on its right, right-aligned on its left.
-    ctx.textAlign = side > 0 ? 'left' : 'right';
-    const x = side > 0 ? 16 : c.width - 16;
+    // The text hugs the light: left-aligned on its right, right-aligned on its left; centred above it (side 0).
+    ctx.textAlign = side > 0 ? 'left' : side < 0 ? 'right' : 'center';
+    const x = side > 0 ? 16 : side < 0 ? c.width - 16 : c.width / 2;
     ctx.textBaseline = 'middle';
     // Glow first (red = 0: the shader tints it amber), then the letters (red = 1: warm white).
     ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
@@ -640,6 +644,19 @@ export class LightField {
       const breath = 0.5 + 0.5 * Math.sin(now * (0.95 + 0.25 * l.seed) + l.seed * 11);
       lights[i].set(p.x, p.y, p.z, born * (0.85 + 0.3 * breath) * this.skyUniforms.uStarDim.value * (1 - 0.85 * this.skyUniforms.uKeptHush.value));
     }
+    const f = this.focus;
+    if (f != null) {
+      // Your sky: the looked-at light's word fades in above it, stays while you look, fades out after.
+      const dt = Math.min(0.1, Math.max(0, now - f.at));
+      f.at = now;
+      f.k = f.on ? Math.min(1, f.k + dt / 0.3) : Math.max(0, f.k - dt / 0.45);
+      this.wordUniforms.uWordK.value = f.k;
+      this.wordUniforms.uWordPos.value.copy(f.pos);
+      this.wordUniforms.uWordAbove.value = 1;
+      if (!f.on && f.k === 0) this.focus = null;
+      return;
+    }
+    this.wordUniforms.uWordAbove.value = 0;
     const w = this.word;
     const wk = w == null ? 0 : keptWordAlpha(now - w.at);
     this.wordUniforms.uWordK.value = wk;
@@ -647,6 +664,48 @@ export class LightField {
       this.wordUniforms.uWordPos.value.copy(w.light.to);
       if (wk === 0 && now > w.at + 1) this.word = null;
     }
+  }
+
+  /**
+   * 29 Oct (Your sky): writes `text` in light, centred above the world point (a kept light, a star), held until
+   * focusWord(null). One word at a time: a new one replaces the last at once.
+   */
+  focusWord(text: string | null, x = 0, y = 0, z = 0): void {
+    if (text == null) {
+      if (this.focus != null) this.focus.on = false;
+      return;
+    }
+    if (this.focus != null && this.focus.on && this.focus.text === text) {
+      this.focus.pos.set(x, y, z);
+      return;
+    }
+    this.word = null;
+    this.drawWord(text, 0);
+    this.focus = { text, pos: new Vector3(x, y, z), on: true, k: this.focus?.on ? 0.6 : 0, at: timeUniform.value };
+  }
+
+  /** The word shown above a light right now (Your sky), or null. */
+  get focusedWord(): string | null {
+    return this.focus != null && this.focus.on ? this.focus.text : null;
+  }
+
+  /** How many kept lights are alive (Keep's lights in the room). */
+  get keptCount(): number {
+    let n = 0;
+    for (let i = STAR_SLOTS; i < STAR_SLOTS + KEPT_SLOTS; i++) if (this.life.getX(i) < -1.5) n++;
+    return n;
+  }
+
+  /** World position kept light `n` (0-based, in the order they were added since clearKept) is heading to. */
+  keptTarget(n: number, out: { x: number; y: number; z: number }): boolean {
+    if (n < 0 || n >= KEPT_SLOTS) return false;
+    const slot = STAR_SLOTS + n;
+    if (this.life.getX(slot) > -1.5) return false;
+    const moving = this.travel.getX(slot) > 0;
+    out.x = moving ? this.target.getX(slot) : this.start.getX(slot);
+    out.y = moving ? this.target.getY(slot) : this.start.getY(slot);
+    out.z = moving ? this.target.getZ(slot) : this.start.getZ(slot);
+    return true;
   }
 
   /** Uploads changed attributes at most once per frame. */

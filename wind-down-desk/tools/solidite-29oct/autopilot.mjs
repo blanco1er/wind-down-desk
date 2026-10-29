@@ -61,10 +61,8 @@ export default async function run({ frame, page, cdp }) {
         await until(() => d().evening().mode === 'choose', 15000);
         await menu('sleep');
         if (await until(() => d().tension().side === 'out', 4000)) { await sleep(700); d().press('keep'); }
-        await until(() => d().night().step === 2, 22000); await sleep(800);
-        d().press('keep'); await sleep(1000);
-        const m = word(/^10 min$/u); if (m >= 0) d().press(`word:${m}`); await sleep(800);
-        d().sleepSkip(300); await sleep(1500);
+        await until(() => d().night().sleep != null, 22000); await sleep(800);
+        d().sleepSkip(10); await sleep(1500);
         d().press('keep');
         const ended = await until(() => !d().perf().xr, 20000);
         ap.day++; d().film.day(ap.day);

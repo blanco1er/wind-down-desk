@@ -53,6 +53,8 @@ export const rig = {
   uOrbEnergy: { value: 0.6 },
   uOrbRadius: { value: 0.025 },
   uRoomDim: { value: 0 },
+  /** 29 Oct (the close): how far the night's last fade has gone (0 none … 1 dark): the desk sinks with the room. */
+  uSleepDark: { value: 0 },
   /** Living places: the fire's light (campfire of "Ember fire", the cabin's fireplace); intensity 0 elsewhere. */
   uFire: fireUniforms.uFire,
   uFireBurst: fireUniforms.uFireBurst,
@@ -112,6 +114,7 @@ export const RIG = /* glsl */ `
   uniform float uOrbEnergy;
   uniform float uOrbRadius;
   uniform float uRoomDim;
+  uniform float uSleepDark;
   ${FIRE_LIGHT_GLSL}
   uniform vec3 uSH[9];
   uniform float uShMix;
@@ -135,6 +138,7 @@ export const RIG = /* glsl */ `
   vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
   vec3 toDisplay(vec3 c) {
     c *= 1.0 - uDim * 0.5;
+    c *= 1.0 - 0.94 * uSleepDark;
     c = (c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14);
     return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
   }

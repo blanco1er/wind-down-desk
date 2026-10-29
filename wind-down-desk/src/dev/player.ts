@@ -128,6 +128,10 @@ export function mountPlayer(world: World): PlayerApi | null {
   // Glass buttons and menus: IWSDK's own mouse path into the scene, kept on during the (emulated) session.
   const cps = world.getSystem(CanvasPointerSystem);
   if (cps != null) (cps.config.activeDuringXR as { value: boolean }).value = true;
+  // 29 Oct (owner: "the buttons don't work", ‹ › ✕ of the globe): the emulated Quest keeps its 63 mm IPD while the
+  // screen shows ONE centred view, so the mouse ray left from an eye 3 cm aside — every hit zone sat ≈ 25 px off its
+  // button (big chips still caught it, small round buttons never). One eye at the centre: the ray is the view.
+  (dev as Device & { ipd?: number }).ipd = 0;
 
   // ---------------------------------------------------------------- camera
   let frame: DeskFrame | null = null;

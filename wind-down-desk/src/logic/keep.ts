@@ -3,6 +3,8 @@
  * said or touched, becomes a small warm light that floats to its place in the room and stays there, evening after
  * evening. The sky keeps what you let go; the room keeps what you love.
  */
+import { recurring } from './journal.ts';
+import type { NightRecord } from './memory.ts';
 import { normalize } from './text.ts';
 
 /** How many good things one evening asks for (fewer is fine: "That's all"). */
@@ -122,4 +124,68 @@ export function keptWordAlpha(t: number): number {
   if (t < f.wordIn) return t / f.wordIn;
   if (t < f.wordIn + f.wordHold) return 1;
   return Math.max(0, 1 - (t - f.wordIn - f.wordHold) / f.wordOut);
+}
+
+// ------------------------------------------------------------ 29 Oct: Your sky, the memory world
+
+/** The crown of kept lights around the seat (Your sky): distance (m), yaw (° either side), height (° from the eye). */
+export const KEPT_CROWN = { near: 0.55, far: 1.1, yaw: 70, low: -5, high: 25 } as const;
+
+/**
+ * Where kept light `i` of `n` (oldest first) floats in Your sky, world: a living crown around the seated head,
+ * within ±70° of the desk's direction, −5°…+25° high (above the desk's glass, which stands lower), 0.55–1.1 m away.
+ * A low-discrepancy spread (no two on top of each other); the newest nearest the middle and the closest.
+ */
+export function keptCrown(i: number, n: number, seed: number, head: { x: number; y: number; z: number }, forward: { x: number; z: number }): { x: number; y: number; z: number } {
+  const c = KEPT_CROWN;
+  const rank = n - 1 - i; // 0: the newest
+  const j = (shift: number) => (((seed >>> shift) & 0xff) / 0xff - 0.5) * 2;
+  const a = (0.5 + rank * 0.7548776662) % 1;
+  const b = (0.5 + rank * 0.569840291) % 1;
+  // Newest near the middle: the first few ranks stay within the inner half of the crown.
+  const reach = Math.min(1, 0.35 + rank / Math.max(4, n));
+  const yawDeg = (a * 2 - 1) * c.yaw * reach + 2 * j(0);
+  const pitchDeg = c.low + (c.high - c.low) * b + 1.5 * j(8);
+  const dist = c.near + (c.far - c.near) * Math.min(1, rank / Math.max(6, n - 1)) * (0.75 + 0.25 * ((j(16) + 1) / 2));
+  const fl = Math.hypot(forward.x, forward.z) || 1;
+  const fx = forward.x / fl;
+  const fz = forward.z / fl;
+  const yaw = (Math.max(-c.yaw, Math.min(c.yaw, yawDeg)) * Math.PI) / 180;
+  const pitch = (Math.max(c.low, Math.min(c.high, pitchDeg)) * Math.PI) / 180;
+  // The desk's direction turned by `yaw` about the vertical (left or right: the crown is symmetric).
+  const dx = fx * Math.cos(yaw) - fz * Math.sin(yaw);
+  const dz = fx * Math.sin(yaw) + fz * Math.cos(yaw);
+  const d = Math.max(c.near, Math.min(c.far, dist));
+  return { x: head.x + dx * Math.cos(pitch) * d, y: head.y + Math.sin(pitch) * d, z: head.z + dz * Math.cos(pitch) * d };
+}
+
+const NUMBERS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+function count(n: number): string {
+  return n < NUMBERS.length ? NUMBERS[n] : String(n);
+}
+function cap(t: string): string {
+  return t.length > 0 ? t[0].toUpperCase() + t.slice(1) : t;
+}
+function day(date: string): number {
+  const [y, m, d] = date.split('-').map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86_400_000);
+}
+
+/**
+ * The lamp's words as you enter Your sky: one or two true sentences, made only of what was recorded — the good things
+ * kept these two weeks (and the one that came back most, if it came back at least twice), and the stars of what was
+ * let go. Nothing invented, nothing to fix; a plain line when there is nothing yet.
+ */
+export function keptSummary(nights: readonly NightRecord[], today: string): string {
+  const t = day(today);
+  const recent = nights.filter((n) => t - day(n.date) >= 0 && t - day(n.date) < 14);
+  const kept = recent.flatMap((n) => n.kept ?? []);
+  const stars = nights.reduce((sum, n) => sum + n.letGo.length + (n.sunk ?? []).length, 0);
+  if (kept.length === 0 && stars === 0) return 'Your sky starts tonight. Keep a good thing, or let one go.';
+  const starPart = stars > 0 ? `${count(stars)} ${stars === 1 ? 'star' : 'stars'} for what you let go` : '';
+  if (kept.length === 0) return `${cap(starPart)}.`;
+  const keptPart = `${cap(count(kept.length))} good ${kept.length === 1 ? 'thing' : 'things'} these two weeks`;
+  const first = starPart.length > 0 ? `${keptPart}, and ${starPart}.` : `${keptPart}.`;
+  const again = recurring(kept);
+  return again != null ? `${first} ${cap(again.text)} came back ${again.count === 2 ? 'twice' : `${count(again.count)} times`}.` : first;
 }

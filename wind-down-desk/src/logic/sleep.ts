@@ -4,27 +4,27 @@
  * 1. Your sky on your ceiling: the stars of the things you let go leave the lamp's sky and settle on the real
  *    ceiling (scene understanding: a ceiling plane, else a ceiling volume, else a virtual dome above you), inside a
  *    50° cone above your seat, never behind you.
- * 2. "Stay till I sleep": instead of closing 8.5 s later, the lamp offers to stay. Light and sound sink very slowly
- *    over 10, 20 or 30 minutes; the sky breathes slower and slower (6 → 5 breaths a minute), then the session ends
- *    by itself. An open hand lowered slowly (a dimmer) or "dimmer" makes it darker sooner; "lights out" ends now.
+ * 2. The close (29 Oct, owner: "nobody sleeps in a headset"): once the stars have landed the lamp says a short,
+ *    true closing line ("Sleep well." — you can take the headset off now), then the room, the stars, the sound and
+ *    the lamp sink together over ≈ 20 s, the sky breathing slower (6 → 5 a minute), and the session ends by itself.
+ *    An open hand lowered slowly (a dimmer) or "dimmer" makes it darker sooner; "lights out" ends now.
  */
 import type { MeshBox } from './surfaces.ts';
 import type { PlaneCandidate } from './placement.ts';
 
-export const SLEEP_MINUTES = [10, 20, 30] as const;
-export const DEFAULT_SLEEP_MINUTES = 20;
-/** Unanswered, the lamp stays (the gentle default: nothing goes dark suddenly) for the shortest time. */
-export const UNANSWERED_STAY_S = 30;
+/** How long the closing fade lasts (seconds): the room, the stars, the sound and the lamp, together. */
+export const SLEEP_FADE_S = 20;
 /** Half-angle of the cone above the seat where the ceiling stars may land (comfort: no craning back). */
 export const CEILING_CONE_DEG = 50;
 
 export const SLEEP_LINES = {
   ceiling: 'Your sky, on your ceiling.',
   dome: 'Your sky, above you.',
-  ask: 'Shall I stay until you fall asleep?',
-  stay: 'I will stay. Everything will fade slowly.',
   leave: 'Sleep well.',
 } as const;
+
+/** The closing line's small second line (text only). */
+export const SLEEP_CLOSE_SUB = 'You can take the headset off now.';
 
 export interface SleepLevels {
   /** 0..1 progress of the fade. */
@@ -43,10 +43,9 @@ function smooth(k: number): number {
   return c * c * (3 - 2 * c);
 }
 
-/** Levels `seconds` into a fade of `minutes` (plus `boost` seconds taken by the dimmer gesture). */
-export function sleepLevels(seconds: number, minutes: number, boost = 0): SleepLevels {
-  const total = Math.max(60, minutes * 60);
-  const k = Math.min(1, Math.max(0, (seconds + boost) / total));
+/** Levels `seconds` into the closing fade (plus `boost` seconds taken by the dimmer gesture). */
+export function sleepLevels(seconds: number, boost = 0): SleepLevels {
+  const k = Math.min(1, Math.max(0, (seconds + boost) / SLEEP_FADE_S));
   return {
     k,
     light: 1 - smooth(k),
@@ -57,8 +56,8 @@ export function sleepLevels(seconds: number, minutes: number, boost = 0): SleepL
 }
 
 /** How much one dimmer stroke brings the end forward (seconds). */
-export function dimStrokeSeconds(minutes: number): number {
-  return Math.max(60, minutes * 60) * 0.15;
+export function dimStrokeSeconds(): number {
+  return SLEEP_FADE_S * 0.15;
 }
 
 /**
@@ -102,15 +101,10 @@ export class DimGesture {
   }
 }
 
-export type SleepCommand = { type: 'stay'; minutes?: number } | { type: 'leave' } | { type: 'dimmer' } | { type: 'minutes'; minutes: number };
+export type SleepCommand = { type: 'leave' } | { type: 'dimmer' };
 
-const MINUTE_WORDS: Record<string, number> = { ten: 10, '10': 10, twenty: 20, '20': 20, thirty: 30, '30': 30, 'half an hour': 30, fifteen: 15, '15': 15 };
-
-/** What the voice can say in the night (normalized text). */
+/** What the voice can say in the night (normalized text); "good night" again goes through the evening's own path. */
 export function parseSleepCommand(n: string): SleepCommand | null {
-  const minutes = /^(?:stay (?:for )?)?(ten|twenty|thirty|fifteen|10|20|30|15|half an hour)(?: minutes?| mins?)?$/u.exec(n);
-  if (minutes != null) return { type: 'minutes', minutes: MINUTE_WORDS[minutes[1]] };
-  if (/^(stay|stay with me|yes stay|please stay|stay please|stay until i sleep|stay till i sleep|keep me company)$/u.test(n)) return { type: 'stay' };
   if (/^(lights out|turn it off|turn off|switch off|goodbye|bye|end|end it|im asleep|leave|you can go|no thanks|not tonight)$/u.test(n)) return { type: 'leave' };
   if (/^(dimmer|darker|dim( the lights| it)?|lower( the lights)?|less light|quieter)$/u.test(n)) return { type: 'dimmer' };
   return null;

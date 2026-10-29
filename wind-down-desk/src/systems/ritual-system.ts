@@ -13,6 +13,7 @@
  */
 import {
   Box3,
+  CanvasPointerSystem,
   Color,
   createSystem,
   Euler,
@@ -100,9 +101,17 @@ import { secs, track } from '../visits.ts';
 import { PauseGate, xrVisible } from '../logic/pause.ts';
 import { checkoutLine, nightSummary, parseTension, RAIL, railTouch, TENSION_LINES, TENSION_WORDS, tensionArrow, TensionDial, tensionU, tensionWord, type TensionSide } from '../logic/tension.ts';
 import { TensionRail } from '../desk/tension-rail.ts';
-import { goodThing, isKeepDone, KEEP_COUNT, KEEP_LINES, keepChoices, keepLine, KEPT_FLIGHT, keptPlace, keptPlaceNear } from '../logic/keep.ts';
+import { goodThing, isKeepDone, KEEP_COUNT, KEEP_LINES, keepChoices, keepLine, KEPT_FLIGHT, keptCrown, keptPlace, keptPlaceNear, keptSummary } from '../logic/keep.ts';
 /** 29 Oct: world size of a kept light's quad: tonight's (in view, lighting the tray) and earlier evenings' (the ring). */
 const KEPT_NEAR_SIZE = 0.17;
+/** Browsing the globe of Places: the world follows this long after the last ‹ › (ms). */
+const GLOBE_SETTLE_MS = 900;
+/** How many kept lights stay on the wall (the most recent): the rest live in Your sky. */
+const KEPT_ON_WALL = 12;
+/** 29 Oct — Your sky: the room's dim, the flights (s), the kept lights' sizes (newest a little larger). */
+const MEMORY_DIM = 0.62;
+const MEMORY_FLIGHT = { out: 3.2, step: 0.07, back: 2.6 } as const;
+const MEMORY_SIZE = { newest: 0.12, other: 0.085 } as const;
 /** 29 Oct (Good night): the room's darkening while your sky is up, and the stars' rise (s). */
 const NIGHT_DIM = 0.78;
 const NIGHT_RISE = { gather: 0.9, step: 0.09, spread: 2.8, travel: 4.8 } as const;
@@ -112,11 +121,11 @@ import { dateLabel, entryRows, entrySubtitle, isJournalCommand, journalEntries, 
 import { constellationSegments, eveningSkyPoint, skyDisc, type SkyStar } from '../logic/night-sky.ts';
 import { keptOnWall, pickKeepWall, wallsFrom, type OrientedPlane, type Wall } from '../logic/walls.ts';
 import { MAX_SKY_LINES } from '../desk/ceiling-sky.ts';
-import { ceilingPoint, DimGesture, dimStrokeSeconds, findCeiling, parseSleepCommand, SLEEP_LINES, SLEEP_MINUTES, sleepLevels, UNANSWERED_STAY_S, type Ceiling } from '../logic/sleep.ts';
+import { ceilingPoint, DimGesture, dimStrokeSeconds, findCeiling, parseSleepCommand, SLEEP_CLOSE_SUB, SLEEP_LINES, sleepLevels, type Ceiling } from '../logic/sleep.ts';
 import { eveningDate } from '../logic/memory.ts';
 import { setMasterLevel } from '../desk/sounds.ts';
 import { MIX_LINES, mixLevels, parseMixCommand } from '../logic/mix.ts';
-import { STAR_SLOTS } from '../desk/particles.ts';
+import { KEPT_SLOTS, STAR_SLOTS } from '../desk/particles.ts';
 import { FistState, squeezeButton, squeezeCaption, squeezeLine, SqueezeSession, type SqueezeFrame } from '../logic/squeeze.ts';
 
 interface Stone {
@@ -443,17 +452,26 @@ export class RitualSystem extends createSystem({
   /** The journal (Your sky): its pages, the one shown, the star looked at. */
   private journal: { entries: JournalEntry[]; index: number; week: string } | null = null;
   private starTexts: Array<{ text: string; date: string; seed: number }> = [];
+  /** The pending live switch of the globe of Places (stepGlobe). */
+  private globeSettle: number | null = null;
   private readonly starIds = Array.from({ length: STAR_SLOTS }, (_, i) => `star:${i}`);
+  /** 29 Oct — Your sky, the memory world: every good thing kept, in a living crown around you; null when closed. */
+  private memoryWorld: { at: number; kept: Array<{ text: string; date: string; x: number; y: number; z: number }>; summary: string; linesSet: boolean } | null = null;
+  private memoryDim = 0;
+  private readonly keptIds = Array.from({ length: KEPT_SLOTS }, (_, i) => `kept:${i}`);
+  /** What the memory world shows right now (its word above a light), and how long the eyes have been away. */
+  private memoryShown: string | null = null;
+  private memoryAway = 0;
   private starGazeId: string | null = null;
   private starGazeT = 0;
   private starShown = -1;
   private readonly starTmp = { x: 0, y: 0, z: 0 };
-  /** The living night: the steps after Good night, the ceiling found, and the slow fade of "stay till I sleep". */
+  /** The living night: the steps after Good night, the ceiling found, and the closing fade. */
   private nightSeq: { at: number; step: number; askedAt: number } | null = null;
   private ceiling: Ceiling | null = null;
-  /** 29 Oct: how much the night darkens your room (eased; the stay-till-sleep fade takes it further). */
+  /** 29 Oct: how much the night darkens your room (eased; the closing fade takes it further). */
   private nightDim = 0;
-  private sleep: { start: number; minutes: number; boost: number; phase: number; via: string } | null = null;
+  private sleep: { start: number; boost: number; phase: number; via: string } | null = null;
   private readonly dimGestures = { left: new DimGesture(), right: new DimGesture() };
   /** The voice / sound mix in the headset: two rails (voice in front, sound behind), open while set. */
   private mixRails: { voice: TensionRail; sound: TensionRail } | null = null;
@@ -491,7 +509,9 @@ export class RitualSystem extends createSystem({
     this.stoneBatch.attach(this.world.scene);
 
     // The lamp is touched, not pointed at: a hand ray sweeping past it while carrying a stone must never mute the mic.
-    this.visuals.orbEntity.addComponent(PokeInteractable).addComponent(DeskButton, { action: 'orb' });
+    // 29 Oct (owner, computer preview: "I click and nothing happens" on the globe of Places): the lamp's globe takes
+    // the pointer ray too, not only a finger — a mouse click (or a far pinch) on it acts like a touch.
+    this.visuals.orbEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'orb' });
     this.visuals.keepEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'keep' });
     this.visuals.lighterEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'lighter' });
     this.visuals.ornamentEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'places' });
@@ -1207,9 +1227,11 @@ export class RitualSystem extends createSystem({
   }
 
   /** 28 Oct (Keep): every good thing kept on recent evenings floats in the room, a warm light each. */
-  private showKept(): void {
-    if (this.frame == null) return;
-    const kept = services.memory.keptLights();
+  private showKept(from: Map<string, Vec3> | null = null): void {
+    if (this.frame == null || this.memoryWorld != null) return;
+    // 29 Oct (owner: "will it overflow?"): the wall keeps the 12 most recent good things (≈ 4 evenings) — calm, never
+    // a fairground; all of them live in Your sky (the memory world).
+    const kept = services.memory.keptLights(KEPT_ON_WALL);
     // 29 Oct: the same lights already shown (a ritual just ended): leave them be (a light still flying, its word).
     const key = kept.map((k) => `${k.date}|${k.text}`).join('\n');
     if (key === this.keptShownKey) return;
@@ -1223,8 +1245,11 @@ export class RitualSystem extends createSystem({
     kept.forEach((k, i) => {
       const near = k.date === tonight;
       const w = this.keptSpot(i, near ? n++ : -1, k.seed, wall);
-      // On a wall, earlier evenings' lights are a little smaller than tonight's (weeks of them stay calm).
-      this.visuals.lights.kept(w.x, w.y, w.z, w.x, w.y, w.z, 0, 0.4 + i * 0.08, near ? KEPT_NEAR_SIZE : wall != null ? KEPT_WALL_OLD_SIZE : KEPT_RING_SIZE, null, near && wall == null);
+      // 29 Oct: coming back from Your sky, each light flies home from where it floated.
+      const f = from?.get(`${k.date}|${k.text}`) ?? null;
+      const size = near ? KEPT_NEAR_SIZE : wall != null ? KEPT_WALL_OLD_SIZE : KEPT_RING_SIZE;
+      if (f != null) this.visuals.lights.kept(f.x, f.y, f.z, w.x, w.y, w.z, MEMORY_FLIGHT.back, 0.1 + i * 0.05, size, null, near && wall == null);
+      else this.visuals.lights.kept(w.x, w.y, w.z, w.x, w.y, w.z, 0, 0.4 + i * 0.08, size, null, near && wall == null);
     });
   }
 
@@ -1590,11 +1615,22 @@ export class RitualSystem extends createSystem({
       }
       if (this.tensionSide === 'in') this.closeTension(false);
     }
-    // 28 Oct — the night ("stay", "twenty minutes", "dimmer", "lights out") and the journal ("earlier", "close").
+    // 28 Oct — the night ("dimmer", "lights out") and the journal ("earlier", "close").
     if (this.mode === 'night' && this.nightSeq != null) {
       const sleepCommand = parseSleepCommand(normalize(clean));
       if (sleepCommand != null) {
         this.onSleepCommand(sleepCommand, 'voice');
+        return;
+      }
+    }
+    if (this.memoryWorld != null) {
+      const said = normalize(clean);
+      if (/^(close|close it|that s all|thats all|that is all|done|back|go back|exit|enough)$/u.test(said)) {
+        this.closeMemoryWorld(true);
+        return;
+      }
+      if (/^(journal|the journal|open the journal|pages)$/u.test(said)) {
+        this.memoryToJournal();
         return;
       }
     }
@@ -1618,8 +1654,8 @@ export class RitualSystem extends createSystem({
       }
     }
     if (isSkyCommand(normalize(clean))) {
-      // 28 Oct: "show me my sky" opens the journal (your sky in the lamp, and what each evening let go).
-      this.openJournal('voice');
+      // 29 Oct: "show me my sky" opens Your sky, the memory world (the journal is one touch away in it).
+      this.openMemoryWorld('voice');
       return;
     }
     if (isForgetCommand(normalize(clean))) {
@@ -1834,7 +1870,7 @@ export class RitualSystem extends createSystem({
       if (id === 'sleep') {
         this.goodnight();
       } else if (id === 'sky') {
-        this.openJournal('hand');
+        this.openMemoryWorld('hand');
       } else if (id === 'unload' || id === 'breathe' || id === 'release' || id === 'talk' || id === 'squeeze' || id === 'keep') {
         this.startRitual(id, undefined, 'hand');
       }
@@ -1978,7 +2014,7 @@ export class RitualSystem extends createSystem({
       return;
     }
     if (this.visuals.placesOpen) return;
-    this.visuals.setGlobeHint(this.access.gazeSelect ? 'Look at the lamp to go there' : services.style.quiet ? 'Touch the lamp to go there' : 'Touch the lamp, or say "this one"');
+    this.visuals.setGlobeHint(this.access.gazeSelect ? 'You are here · look at the globe to stay' : 'You are here · touch the globe to stay');
     this.visuals.openPlaces(true);
     if (this.visuals.backdrop.place === 'room') {
       let last: string | null = null;
@@ -1997,6 +2033,15 @@ export class RitualSystem extends createSystem({
     this.lastActivity = this.elapsed;
     this.sounds.play('pearl', this.visuals.orb.getWorldPosition(this.v2).x, this.v2.y, this.v2.z);
     track('globe', { step: step > 0 ? 'next' : 'previous', id }, `globe:${id}`);
+    // 29 Oct (owner: "the world should change when you change, no need to touch the bubble again"): the world
+    // follows the globe live. GLOBE_SETTLE_MS after the last ‹ › the place crossfades in around you (a quick
+    // flick through five places loads none of them); the globe stays open, touching it (or ×) closes it.
+    if (this.globeSettle != null) window.clearTimeout(this.globeSettle);
+    this.globeSettle = window.setTimeout(() => {
+      this.globeSettle = null;
+      if (!this.visuals.placesOpen || this.visuals.globePlace !== id || id === this.visuals.backdrop.place) return;
+      void this.goPlace(id, 'hand', true);
+    }, GLOBE_SETTLE_MS);
   }
 
   private chooseGlobePlace(via: 'hand' | 'voice'): void {
@@ -2010,14 +2055,14 @@ export class RitualSystem extends createSystem({
   }
 
   /** Changes place (crossfade, the desk light follows). Your room is always one word away. */
-  private async goPlace(id: PlaceId, via: 'hand' | 'voice'): Promise<void> {
+  private async goPlace(id: PlaceId, via: 'hand' | 'voice', browsing = false): Promise<void> {
     track('place', { id, via }, `place:${id}`);
     const place = PLACES[id];
     if (id === this.visuals.backdrop.place) {
-      this.visuals.openPlaces(false);
+      if (!browsing) this.visuals.openPlaces(false);
       return;
     }
-    if (place.photo != null) {
+    if (place.photo != null && !browsing) {
       this.flash(goingLine(place.name), 2, '', false);
     }
     if (id !== 'room') {
@@ -2033,6 +2078,8 @@ export class RitualSystem extends createSystem({
       return;
     }
     this.cue('night', { x: 0, y: 0.4, z: -0.6 });
+    // Browsing the globe: it stays open (the name over the globe says where you are), no caption over it.
+    if (browsing) return;
     window.setTimeout(() => this.visuals.openPlaces(false), via === 'hand' ? 700 : 0);
     this.flash(place.arrive, 4, id === 'room' ? '' : 'Say "back to my room" anytime.');
   }
@@ -2207,6 +2254,7 @@ export class RitualSystem extends createSystem({
     // 28 Oct: choosing a ritual answers the bead's question by itself: it slips back into the tray.
     this.closeTension(false);
     if (this.journal != null) this.closeJournal(false);
+    if (this.memoryWorld != null) this.closeMemoryWorld(false);
     // The lamp leaves your sky for the ritual (the milestone, if any, is already on the table).
     this.visuals.hideSky();
     // A ritual chosen during the follow-ups: the remaining stones simply stay on the desk.
@@ -2894,6 +2942,7 @@ export class RitualSystem extends createSystem({
   }
 
   private goodnight(): void {
+    if (this.memoryWorld != null) this.closeMemoryWorld(false);
     // 28 Oct: before the night, once, the bead again ("Before you sleep: how heavy now?"), with tonight's arrival as a
     // faint reflection. Skipped, or "good night" said again: the night comes at once.
     if (this.tensionSide === 'out') {
@@ -2929,7 +2978,7 @@ export class RitualSystem extends createSystem({
     this.visuals.hideCard();
     if (this.journal != null) this.closeJournal(false);
     this.enterNight();
-    // 28 Oct: the session no longer closes 8.5 s later: your sky goes up to the ceiling, and the lamp offers to stay.
+    // 28 Oct: the session no longer closes 8.5 s later: your sky goes up to the ceiling, then the closing fade.
     this.goodnightAt = -1;
     this.nightSeq = { at: this.elapsed, step: 0, askedAt: -1 };
   }
@@ -3015,7 +3064,7 @@ export class RitualSystem extends createSystem({
     this.visuals.backdrop.setEvening(this.evening);
     this.visuals.setEvening(this.evening, this.mode === 'night');
     // Your room dims too (more gently than a place, which is already graded); Breathe dims it further.
-    this.rv.eveningDim = Math.max(this.evening * (this.visuals.backdrop.place === 'room' ? 0.42 : 0.18), this.nightDim);
+    this.rv.eveningDim = Math.max(this.evening * (this.visuals.backdrop.place === 'room' ? 0.42 : 0.18), this.nightDim, this.memoryDim);
   }
 
   /**
@@ -3045,7 +3094,7 @@ export class RitualSystem extends createSystem({
       this.ask != null ? `a${this.ask.key}` : '',
       this.tensionSide != null ? `k${this.tensionSide}` : '',
       placed && this.mode === 'keep' ? `g${this.keepCount}:${[...this.keepUsed].join(',')}` : '',
-      this.sleep != null ? `z${this.sleep.minutes}` : '',
+      this.sleep != null ? 'z' : '',
       this.journal != null ? 'j' : '',
       this.mixOpen ? 'x' : '',
       placed && this.mode === 'talk' ? `t${this.bubbleKey}:${this.talk?.closing === true ? 1 : 0}` : '',
@@ -3069,10 +3118,6 @@ export class RitualSystem extends createSystem({
       const words = keepChoices(this.keepUsed);
       this.wordActions = [...words.map((w) => () => this.addGood(w, 'touch')), () => requestWrite('unload', 'A good thing from today?', (text) => void this.handleUtterance(text, 'typed'))];
       this.visuals.setWords([...words.map((label) => ({ label, dim: false, accent: false })), { label: WRITE_LABEL, dim: false, accent: false }]);
-    } else if (placed && this.sleep != null && !menu) {
-      // 28 Oct (stay till I sleep): how long, by touch.
-      this.wordActions = SLEEP_MINUTES.map((m) => () => this.onSleepCommand({ type: 'minutes', minutes: m }, 'touch'));
-      this.visuals.setWords(SLEEP_MINUTES.map((m) => ({ label: `${m} min`, dim: false, accent: m === this.sleep!.minutes })));
     } else if (placed && this.mode === 'talk' && !menu) {
       // Talk it through: suggestion bubbles when the person falls silent; without a microphone, Write… too.
       const lines = this.bubbles ?? [];
@@ -3524,8 +3569,12 @@ export class RitualSystem extends createSystem({
     if (this.pauseGate.paused) return;
     const dt = Math.min(delta, 0.05);
     this.elapsed += dt;
-    // 29 Oct: Keep's lights fall quiet during the other rituals (their own moment stays theirs).
-    this.visuals.keptQuiet = this.mode === 'unload' || this.mode === 'breathe' || this.mode === 'squeeze' || this.mode === 'release' || this.mode === 'talk';
+    // 29 Oct: Keep's lights fall quiet during the other rituals and the night (only the ceiling's stars carry it;
+    // in the night they also follow the light down, through uStarDim); full in Keep and in Your sky.
+    this.visuals.keptQuiet = this.mode === 'unload' || this.mode === 'breathe' || this.mode === 'squeeze' || this.mode === 'release' || this.mode === 'talk' || this.mode === 'night';
+    this.visuals.keptFull = this.mode === 'keep' || this.memoryWorld != null;
+    // 29 Oct (owner): in the night the glass row (Rituals · Places · Sound) fades away; the question and its replies stay.
+    this.visuals.ornamentsNight = this.mode === 'night';
     timeUniform.value = this.elapsed;
     const now = performance.now();
     this.voice.userSpeaking = services.voice.recording;
@@ -3587,6 +3636,14 @@ export class RitualSystem extends createSystem({
       this.refreshCaption();
     }
     if (this.nightSeq != null) this.updateNight(dt);
+    this.updateMemory(dt);
+    // 29 Oct: the lamp takes a ray (the computer preview's mouse, a far pinch) only while it shows the places — at
+    // rest it answers a touch, never a stray far pinch (which would open Talk by mistake).
+    const orbE = this.visuals.orbEntity;
+    if (this.visuals.placesOpen !== orbE.hasComponent(RayInteractable)) {
+      if (this.visuals.placesOpen) orbE.addComponent(RayInteractable);
+      else orbE.removeComponent(RayInteractable);
+    }
     // The session ends once the lamp has gone out (≈ 8 s after "lights out" / a second "good night").
     if (this.goodnightAt >= 0 && this.elapsed - this.goodnightAt > 8.5) {
       this.goodnightAt = -1;
@@ -3890,10 +3947,13 @@ export class RitualSystem extends createSystem({
     }
     if (this.access.gazeSelect) this.pushButtonTargets();
     // 28 Oct (the journal): every star of your sky can be looked at.
-    if (this.journal != null) {
+    if (this.journal != null || this.memoryWorld != null) {
       const n = Math.min(this.starTexts.length, STAR_SLOTS);
       for (let i = 0; i < n; i++) if (this.visuals.lights.starAt(i, this.starTmp)) this.pushGazeTarget(this.starIds[i], this.starTmp.x, this.starTmp.y, this.starTmp.z);
     }
+    // 29 Oct (Your sky): every kept light of the crown can be looked at.
+    const mw = this.memoryWorld;
+    if (mw != null) for (let i = 0; i < mw.kept.length; i++) if (this.memoryLanded(i)) this.pushGazeTarget(this.keptIds[i], mw.kept[i].x, mw.kept[i].y, mw.kept[i].z);
     const dir = this.gazeDir;
     const pick = gazePick(this.v, dir, targets, GAZE.take);
     let keep = false;
@@ -3903,8 +3963,9 @@ export class RitualSystem extends createSystem({
     const focus = this.gazeFocus.update(pick, keep, dt);
     const calm = this.mode === 'breathe' || this.mode === 'release' || this.mode === 'night' ? GAZE.calm : 1;
     this.gazeGain = calm;
-    this.gazedId = focus != null && focus !== 'lamp' && !focus.startsWith('bin:') && !focus.startsWith('star:') ? focus : null;
+    this.gazedId = focus != null && focus !== 'lamp' && !focus.startsWith('bin:') && !focus.startsWith('star:') && !focus.startsWith('kept:') ? focus : null;
     this.updateStarGaze(focus, dt);
+    this.updateMemoryGaze(focus, dt);
     this.gazedBin = focus != null && focus.startsWith('bin:') ? BIN_GAZE_IDS.indexOf(focus) : -1;
     // The lamp "looks up" when you look at it: a slight, slow brightening (rule 7).
     this.lampGazeK = easeToward(this.lampGazeK, focus === 'lamp' ? calm : 0, dt);
@@ -3944,7 +4005,7 @@ export class RitualSystem extends createSystem({
 
   /** What a dwell may select right now (the same rules as the hands). */
   private dwellAllowed(id: string): boolean {
-    if (id.startsWith('star:')) return false;
+    if (id.startsWith('star:') || id.startsWith('kept:')) return false;
     if (id === 'lamp') return this.mode !== 'breathe';
     if (id.startsWith('btn:')) return true;
     const unloading = this.mode === 'unload' && (this.ritual.phase === 'dump' || this.ritual.phase === 'sort');
@@ -4036,8 +4097,12 @@ export class RitualSystem extends createSystem({
   private onSelectStart(source: XRInputSource): void {
     // 28 Oct (the journal): look at a star and pinch: it tells you what it was.
     const focusedStar = this.gazeFocus.focused;
-    if (this.journal != null && focusedStar != null && focusedStar.startsWith('star:')) {
+    if ((this.journal != null || this.memoryWorld != null) && focusedStar != null && focusedStar.startsWith('star:')) {
       this.pickStar(Number(focusedStar.slice(5)), 'pinch');
+      return;
+    }
+    if (this.memoryWorld != null && focusedStar != null && focusedStar.startsWith('kept:')) {
+      this.pickKept(Number(focusedStar.slice(5)), 'pinch');
       return;
     }
     // The lamp shows a place: look at it and pinch (anywhere) to go there. A pinch on a glass button stays a button.
@@ -4450,6 +4515,143 @@ export class RitualSystem extends createSystem({
     this.keepUsed.clear();
   }
 
+  // ------------------------------------------------------------ 29 Oct: Your sky, the memory world
+
+  /**
+   * Your sky: the room dims, the stars of what you let go rise to your ceiling (or a dome) with their constellations,
+   * and every good thing kept leaves the wall for a living crown around you. The lamp says one or two true sentences
+   * about them; look at a light (or a star) to read it. "Journal" opens the pages, "Close" brings everything home.
+   */
+  private openMemoryWorld(via: 'hand' | 'voice'): void {
+    if (this.frame == null || (this.placementMode !== 'table' && this.placementMode !== 'floating')) return;
+    if (this.memoryWorld != null) return;
+    const memory = services.memory;
+    track('sky', { step: 'open' }, `sky:world:${via}`);
+    this.closeTension(false);
+    this.proposal = null;
+    if (this.journal != null) this.closeJournal(false);
+    this.visuals.openRituals(false);
+    this.visuals.openPlaces(false);
+    this.visuals.hideSky();
+    const summary = keptSummary(memory.nights(), eveningDate(new Date()));
+    // The seat faces the desk: the crown is centred on that direction, at the head's height.
+    this.player.head.getWorldPosition(this.v);
+    const head = { x: this.v.x, y: this.v.y, z: this.v.z };
+    const fl = Math.hypot(this.frame.x - head.x, this.frame.z - head.z) || 1;
+    const forward = { x: (this.frame.x - head.x) / fl, z: (this.frame.z - head.z) / fl };
+    const all = memory.keptLights(KEPT_SLOTS);
+    // Where each light is now: the wall's (or the desk's) most recent ones where they rest, the others out of the lamp.
+    const onWall = Math.min(all.length, KEPT_ON_WALL);
+    const first = all.length - onWall;
+    const lamp = this.visuals.orb.getWorldPosition(this.v2);
+    const from = all.map((_, i) => (i >= first && this.visuals.lights.keptTarget(i - first, this.world3) ? { ...this.world3 } : { x: lamp.x, y: lamp.y + 0.02, z: lamp.z }));
+    this.visuals.lights.clearKept();
+    const kept = all.map((k, i) => {
+      const p = keptCrown(i, all.length, k.seed, head, forward);
+      const f = from[i];
+      this.visuals.lights.kept(f.x, f.y, f.z, p.x, p.y, p.z, MEMORY_FLIGHT.out, 0.25 + i * MEMORY_FLIGHT.step, i === all.length - 1 ? MEMORY_SIZE.newest : MEMORY_SIZE.other);
+      return { text: k.text, date: k.date, x: p.x, y: p.y, z: p.z };
+    });
+    this.keptShownKey = '';
+    this.memoryWorld = { at: this.elapsed, kept, summary, linesSet: false };
+    this.memoryShown = null;
+    this.starShown = -1;
+    this.ascendStars(true);
+    this.ask = { labels: ['Journal', 'Close'], actions: [() => this.memoryToJournal(), () => this.closeMemoryWorld(true)], key: 'memory' };
+    this.lastPhaseSpoken = '';
+    const any = kept.length + Math.min(this.starTexts.length, STAR_SLOTS) > 0;
+    this.say(summary, any ? (this.access.gazeSelect ? 'Look at a light: it tells you what it was.' : 'Look at a light to read it.') : '');
+  }
+
+  /** Leaves Your sky: the lights fly home to the wall (the 12 most recent), the stars come back, the room brightens. */
+  private closeMemoryWorld(propose: boolean): void {
+    const mw = this.memoryWorld;
+    if (mw == null) return;
+    this.memoryWorld = null;
+    if (this.ask?.key === 'memory') this.ask = null;
+    this.visuals.lights.focusWord(null);
+    this.memoryShown = null;
+    this.starShown = -1;
+    const u = this.visuals.lights.skyUniforms;
+    u.uPick.value = -1;
+    u.uPickK.value = 0;
+    this.visuals.ceilingSky.showTarget = 0;
+    this.visuals.ceilingSky.linesTarget = 0;
+    this.visuals.lights.starsHome();
+    this.keptShownKey = '';
+    this.showKept(new Map(mw.kept.map((k) => [`${k.date}|${k.text}`, { x: k.x, y: k.y, z: k.z }])));
+    track('sky', { step: 'close' });
+    if (propose && this.mode === 'choose') this.propose(null);
+    else this.refreshCaption();
+  }
+
+  /** "Journal": the pages of the evenings, as before (Your sky closes quietly first). */
+  private memoryToJournal(): void {
+    this.closeMemoryWorld(false);
+    this.openJournal('hand');
+  }
+
+  /** Per frame: the room's dim toward Your sky (and back), and the constellations once the stars have landed. */
+  private updateMemory(dt: number): void {
+    const mw = this.memoryWorld;
+    this.memoryDim += ((mw != null ? MEMORY_DIM : 0) - this.memoryDim) * (1 - Math.exp(-0.8 * dt));
+    if (this.memoryDim < 0.002) this.memoryDim = 0;
+    if (mw != null && !mw.linesSet && this.elapsed - mw.at > NIGHT_RISE.gather + NIGHT_RISE.travel) {
+      mw.linesSet = true;
+      this.visuals.ceilingSky.linesTarget = 1;
+    }
+  }
+
+  /** Has kept light `i` of Your sky landed in the crown (it can be looked at)? */
+  private memoryLanded(i: number): boolean {
+    const mw = this.memoryWorld;
+    return mw != null && this.elapsed - mw.at > 0.25 + i * MEMORY_FLIGHT.step + MEMORY_FLIGHT.out;
+  }
+
+  /** Looking at a light (or a star) of Your sky for half a second writes its word above it; one at a time. */
+  private updateMemoryGaze(focus: string | null, dt: number): void {
+    if (this.memoryWorld == null) {
+      this.memoryGazeId = null;
+      return;
+    }
+    const id = focus != null && (focus.startsWith('kept:') || focus.startsWith('star:')) ? focus : null;
+    if (id == null) {
+      this.memoryAway += dt;
+      if (this.memoryShown != null && this.memoryAway > 1.6) {
+        this.memoryShown = null;
+        this.starShown = -1;
+        this.visuals.lights.focusWord(null);
+      }
+    } else {
+      this.memoryAway = 0;
+    }
+    if (id !== this.memoryGazeId) {
+      this.memoryGazeId = id;
+      this.memoryGazeT = 0;
+      return;
+    }
+    if (id == null || id === this.memoryShown) return;
+    this.memoryGazeT += dt;
+    if (this.memoryGazeT < 0.5) return;
+    if (id.startsWith('kept:')) this.pickKept(Number(id.slice(5)), 'look');
+    else this.pickStar(Number(id.slice(5)), 'look');
+  }
+
+  private memoryGazeId: string | null = null;
+  private memoryGazeT = 0;
+
+  private pickKept(i: number, via: 'look' | 'pinch'): void {
+    const k = this.memoryWorld?.kept[i];
+    if (k == null || !this.memoryLanded(i)) return;
+    this.visuals.lights.focusWord(k.text, k.x, k.y, k.z);
+    this.memoryShown = `kept:${i}`;
+    this.starShown = -1;
+    this.lastActivity = this.elapsed;
+    this.sounds.play('pearl', k.x, k.y, k.z);
+    track('sky', { step: `kept-${via}` });
+    this.flash(`“${k.text}”`, 5, `Kept on ${dateLabel(k.date)}.`, false);
+  }
+
   // ------------------------------------------------------------ 28 Oct: the journal (Your sky)
 
   /** Opens the journal: your sky in the lamp, this week in one true sentence, and one evening per page. */
@@ -4539,7 +4741,7 @@ export class RitualSystem extends createSystem({
   /** Looking at a star for half a second (or pinching while looking) tells what it was. */
   private updateStarGaze(focus: string | null, dt: number): void {
     const u = this.visuals.lights.skyUniforms;
-    u.uPickK.value = easeToward(u.uPickK.value, this.journal != null && this.starShown >= 0 ? 1 : 0, dt, 4);
+    u.uPickK.value = easeToward(u.uPickK.value, (this.journal != null || this.memoryWorld != null) && this.starShown >= 0 ? 1 : 0, dt, 4);
     if (this.journal == null) {
       this.starGazeId = null;
       return;
@@ -4575,6 +4777,10 @@ export class RitualSystem extends createSystem({
     this.lastActivity = this.elapsed;
     if (this.visuals.lights.starAt(i, this.starTmp)) this.sounds.play('pearl', this.starTmp.x, this.starTmp.y, this.starTmp.z);
     track('journal', { step: `star-${via}` });
+    if (this.memoryWorld != null && this.visuals.lights.starAt(i, this.starTmp)) {
+      this.visuals.lights.focusWord(s.text, this.starTmp.x, this.starTmp.y, this.starTmp.z);
+      this.memoryShown = `star:${i}`;
+    }
     this.flash(`“${s.text}”`, 5, `Let go on ${dateLabel(s.date)}.`, false);
     void shortDate;
   }
@@ -4587,6 +4793,7 @@ export class RitualSystem extends createSystem({
     this.ceiling = null;
     this.nightDim = 0;
     this.visuals.ceilingSky.hide();
+    this.visuals.sleepLight = 1;
     const u = this.visuals.lights.skyUniforms;
     u.uStarDim.value = 1;
     u.uStarBreath.value = 0;
@@ -4594,7 +4801,7 @@ export class RitualSystem extends createSystem({
     setMasterLevel(this.world, this.voice.muted ? 0 : 1);
   }
 
-  /** Good night, step by step: your sky rises to the ceiling, then the lamp offers to stay. */
+  /** Good night, step by step: your sky rises to the ceiling, then the lamp's closing line and the fade. */
   private updateNight(dt: number): void {
     const n = this.nightSeq;
     if (n == null) return;
@@ -4608,24 +4815,16 @@ export class RitualSystem extends createSystem({
       this.ascendStars();
     } else if (n.step === 1 && since > 9.5) {
       // 29 Oct: still 9.5 s ("one bus stop": nothing new lengthens the shortest path); the last stars are landing.
+      // Owner, 29 Oct ("nobody sleeps in a headset"): no sleep timer — a short true closing line, then the fade.
       n.step = 2;
       n.askedAt = this.elapsed;
-      this.ask = {
-        labels: ['Stay with me', 'Good night'],
-        actions: [() => this.onSleepCommand({ type: 'stay' }, 'touch'), () => this.onSleepCommand({ type: 'leave' }, 'touch')],
-        key: 'sleep',
-      };
-      this.lastPhaseSpoken = '';
-      this.say(SLEEP_LINES.ask, services.style.quiet ? 'Touch "Stay with me", or "Good night".' : 'Say "stay", or "good night".');
-    } else if (n.step === 2 && this.elapsed - n.askedAt > UNANSWERED_STAY_S) {
-      // Nobody answered (already drifting off?): the lamp stays, for the shortest time, and fades.
-      this.stayTillSleep(SLEEP_MINUTES[0], 'unanswered');
+      this.startFade('auto');
     }
     if (this.sleep != null) this.updateSleep(dt);
   }
 
   /** The stars of the things you let go leave the lamp's sky and settle on your ceiling (or a dome above you). */
-  private ascendStars(): void {
+  private ascendStars(quiet = false): void {
     const lights = this.visuals.lights;
     const count = Math.min(this.starTexts.length, STAR_SLOTS);
     if (count === 0 || this.frame == null) return;
@@ -4657,22 +4856,21 @@ export class RitualSystem extends createSystem({
     this.visuals.ceilingSky.linesTarget = 0;
     this.sounds.play('ascend', this.v.x, this.v.y + 0.6, this.v.z);
     track('ceiling', { source: ceiling.source }, `ceiling:${ceiling.source}`);
-    this.flash(ceiling.source === 'dome' ? SLEEP_LINES.dome : SLEEP_LINES.ceiling, 6, 'Each star is something you let go.');
+    if (!quiet) this.flash(ceiling.source === 'dome' ? SLEEP_LINES.dome : SLEEP_LINES.ceiling, 6, 'Each star is something you let go.');
   }
 
-  /** "Stay with me": light and sound sink over `minutes`, the sky breathes slower, then the session ends by itself. */
-  private stayTillSleep(minutes: number, via: string): void {
+  /**
+   * The close: "Sleep well." (you can take the headset off now); the room, the stars, the sound and the lamp sink
+   * together over SLEEP_FADE_S, then the session ends by itself. One button meanwhile: "Lights out".
+   */
+  private startFade(via: string): void {
     this.ask = null;
     if (this.nightSeq != null) this.nightSeq.step = 3;
-    if (this.sleep == null) {
-      this.sleep = { start: this.elapsed, minutes, boost: 0, phase: 0, via };
-      track('sleep', { event: `stay:${via}`, minutes });
-      this.lastPhaseSpoken = '';
-      this.say(SLEEP_LINES.stay, `${minutes} minutes. Lower an open hand to dim sooner, or say "lights out".`);
-    } else {
-      this.sleep.minutes = minutes;
-      this.flash(`${minutes} minutes.`, 2, '', false);
-    }
+    if (this.sleep != null) return;
+    this.sleep = { start: this.elapsed, boost: 0, phase: 0, via };
+    track('sleep', { event: `fade:${via}` });
+    this.lastPhaseSpoken = '';
+    this.say(SLEEP_LINES.leave, SLEEP_CLOSE_SUB);
     this.touchKey = '';
   }
 
@@ -4682,33 +4880,28 @@ export class RitualSystem extends createSystem({
       this.leaveNight(via);
       return;
     }
-    if (c.type === 'stay') {
-      this.stayTillSleep(c.minutes ?? (this.sleep?.minutes ?? 20), via);
-      return;
-    }
-    if (c.type === 'minutes') {
-      this.stayTillSleep(c.minutes, via);
-      return;
-    }
+    // The dimmer: before the closing line it starts the fade; during it, it brings the end forward.
     if (this.sleep == null) {
-      this.stayTillSleep(SLEEP_MINUTES[0], via);
+      this.startFade(via);
       return;
     }
-    this.sleep.boost += dimStrokeSeconds(this.sleep.minutes);
+    this.sleep.boost += dimStrokeSeconds();
     this.cue('ebb', this.orbLocal());
-    track('sleep', { event: `dimmer:${via}`, minutes: this.sleep.minutes });
+    track('sleep', { event: `dimmer:${via}` });
   }
 
   /** "Good night" / "lights out": the lamp says so; the session closes a few seconds later. */
   private leaveNight(via: string): void {
     this.ask = null;
-    track('sleep', { event: `leave:${via}`, minutes: this.sleep?.minutes ?? 0 });
+    track('sleep', { event: `leave:${via}` });
     if (this.nightSeq != null) this.nightSeq.step = 4;
+    // Already said once the fade began: "Lights out" just ends it (≈ 1.5 s), no second goodbye.
+    const said = this.sleep != null;
     this.sleep = null;
     this.touchKey = '';
     this.lastPhaseSpoken = '';
-    this.say(SLEEP_LINES.leave, '');
-    this.goodnightAt = this.elapsed - 5.5;
+    if (!said) this.say(SLEEP_LINES.leave, '');
+    this.goodnightAt = this.elapsed - (said ? 7 : 5.5);
   }
 
   private updateSleep(dt: number): void {
@@ -4720,15 +4913,16 @@ export class RitualSystem extends createSystem({
       const h = this.hands[side];
       if (this.dimGestures[side].sample(this.elapsed, h.tracked ? h.palm.y : null, h.tracked ? h.open : null)) this.onSleepCommand({ type: 'dimmer' }, 'hand');
     }
-    const lv = sleepLevels(this.elapsed - z.start, z.minutes, z.boost);
+    const lv = sleepLevels(this.elapsed - z.start, z.boost);
     z.phase += dt * (lv.breathsPerMinute / 60) * Math.PI * 2;
     const u = this.visuals.lights.skyUniforms;
     u.uStarDim.value = lv.light;
     u.uStarBreath.value = 0.32 * (0.5 + 0.5 * Math.cos(z.phase));
     this.nightDim = Math.max(this.nightDim, 0.4 + 0.5 * (1 - lv.light));
     setMasterLevel(this.world, this.voice.muted ? 0 : lv.sound);
+    this.visuals.sleepLight = lv.light;
     if (lv.done) {
-      track('sleep', { event: 'faded', minutes: z.minutes });
+      track('sleep', { event: 'faded' });
       this.sleep = null;
       this.nightSeq = null;
       this.world.exitXR();
@@ -5241,11 +5435,27 @@ export class RitualSystem extends createSystem({
         return { open: this.journal != null, index: this.journal?.index ?? null, entries: this.journal?.entries.length ?? 0, week: this.journal?.week ?? null, star: this.starShown, stars: this.starTexts.length };
       },
       starWorld: (i: number) => (this.visuals.lights.starAt(i, this.starTmp) ? { ...this.starTmp } : null),
+      /** 29 Oct (test only): the mouse into the scene during the session (as the computer preview does), and whether
+       * the lamp takes a ray right now (only while the places show). */
+      pointer: (on?: boolean) => {
+        const cps = this.world.getSystem(CanvasPointerSystem);
+        if (on != null && cps != null) (cps.config.activeDuringXR as { value: boolean }).value = on;
+        return { canvas: cps != null, orbRay: this.visuals.orbEntity.hasComponent(RayInteractable), places: this.visuals.placesOpen, place: this.visuals.backdrop.place };
+      },
+      /** 29 Oct — Your sky (the memory world): open / close / journal, or read kept light i (as a look would). */
+      memoryWorld: (step?: 'open' | 'close' | 'journal' | number) => {
+        if (step === 'open') this.openMemoryWorld('hand');
+        else if (step === 'close') this.closeMemoryWorld(true);
+        else if (step === 'journal') this.memoryToJournal();
+        else if (typeof step === 'number') this.pickKept(step, 'look');
+        const mw = this.memoryWorld;
+        return { open: mw != null, kept: mw?.kept.map((k) => ({ ...k })) ?? [], summary: mw?.summary ?? null, word: this.visuals.lights.focusedWord, shown: this.memoryShown, lights: this.visuals.lights.keptCount, dim: +this.memoryDim.toFixed(3), journal: this.journal != null, gazed: this.gazeFocus.focused };
+      },
       /** 28 Oct — the night: its step, the ceiling found, the fade; `command` as the voice would. */
       night: (command?: string) => {
         if (command != null) void this.handleUtterance(command);
         const z = this.sleep;
-        return { mode: this.mode, step: this.nightSeq?.step ?? null, since: this.nightSeq == null ? null : +(this.elapsed - this.nightSeq.at).toFixed(2), lines: this.visuals.ceilingSky.lineCount, ceiling: this.ceiling, sleep: z == null ? null : { minutes: z.minutes, seconds: +(this.elapsed - z.start).toFixed(1), boost: z.boost, ...sleepLevels(this.elapsed - z.start, z.minutes, z.boost) }, starDim: this.visuals.lights.skyUniforms.uStarDim.value };
+        return { mode: this.mode, step: this.nightSeq?.step ?? null, since: this.nightSeq == null ? null : +(this.elapsed - this.nightSeq.at).toFixed(2), lines: this.visuals.ceilingSky.lineCount, ceiling: this.ceiling, sleep: z == null ? null : { seconds: +(this.elapsed - z.start).toFixed(1), boost: z.boost, ...sleepLevels(this.elapsed - z.start, z.boost) }, starDim: this.visuals.lights.skyUniforms.uStarDim.value };
       },
       /** 28 Oct — the night (test only): jump `seconds` into the fade. */
       sleepSkip: (seconds: number) => {

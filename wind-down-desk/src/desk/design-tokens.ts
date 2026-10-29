@@ -24,8 +24,8 @@
  * One file on purpose: when the shared design system lands, map it here.
  */
 
-/** Manrope is shipped with the app (src/desk/fonts.ts); the rest is a fallback only. */
-export const FONT = '"Manrope", "SF Pro Display", -apple-system, "Inter", Roboto, "Segoe UI", "Helvetica Neue", system-ui, sans-serif';
+/** General Sans is shipped with the app (src/desk/fonts.ts); the rest is a fallback only. */
+export const FONT = '"General Sans", "SF Pro Display", -apple-system, "Inter", Roboto, "Segoe UI", "Helvetica Neue", system-ui, sans-serif';
 export const FONT_ROUNDED = FONT;
 
 /** Points per metre at 1 m (third-party figure, see above). */

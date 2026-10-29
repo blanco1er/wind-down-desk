@@ -339,23 +339,51 @@ export class CaptionCanvas {
     ctx.clearRect(0, 0, W, H);
     // 24 Oct (Talk it through): a longer sentence of the lamp gets three smaller lines rather than an ellipsis.
     const long = text.length > 76;
-    let lines = wrapLines(text, long ? 54 : 36, long ? 3 : 2);
+    const maxLines = long ? 3 : 2;
     // Primary: 52 px ≈ 24 mm. Secondary: 32 px ≈ 15 mm.
     let size = long ? 46 : 56;
+    // The small line first: its width sets the panel's.
+    const subSize = 34;
+    ctx.font = `500 ${subSize}px ${FONT}`;
+    // 29 Oct (owner: the title broke at 36 characters in mid-panel while the small line ran to the edge, a lone word
+    // under it): both are cut by their real width on the panel, into lines of close lengths, and the title takes the
+    // number of lines that brings it closest to the small line's width.
+    const avail = W - 180;
+    const subWords = sub.replace(/\s+/gu, ' ').trim().split(' ');
+    const subMeasure = (l: string) => ctx.measureText(l).width;
+    const subFull = sub.length > 0 ? subMeasure(sub) : 0;
+    const subLines = sub.length === 0 ? [] : subFull <= Math.min(avail, 1120) ? [sub] : subFull > avail * 2 ? wrapLines(sub, 60, 2) : balance(subWords, 2, subMeasure);
+    const subW = subLines.length > 0 ? Math.max(...subLines.map(subMeasure)) : 0;
+    const words = text.replace(/\s+/gu, ' ').trim().split(' ');
     ctx.font = `600 ${size}px ${FONT}`;
-    if (lines.length === 2 && !lines[1].endsWith('…')) {
-      // Two balanced lines, never a lone word on the second one.
-      lines = balance(text.replace(/\s+/gu, ' ').trim().split(' '), 2, (l) => ctx.measureText(l).width);
+    const measure = (l: string) => ctx.measureText(l).width;
+    const full = measure(words.join(' '));
+    const target = subW > 0 ? Math.max(subW, 560) : Math.min(avail, 820);
+    let lines: string[];
+    if (full > avail * maxLines) {
+      // More than fits: the old cut, with its ellipsis.
+      lines = wrapLines(text, long ? 54 : 36, maxLines);
+    } else {
+      let best: string[] = [words.join(' ')];
+      let bestScore = Infinity;
+      for (let n = 1; n <= maxLines; n++) {
+        const cand = n === 1 ? [words.join(' ')] : balance(words, n, measure);
+        const w = Math.max(...cand.map(measure));
+        if (w > avail && n < maxLines) continue;
+        // Close to the target width; a little wider than the small line is fine, much narrower leaves a void.
+        const score = Math.abs(w - target) / target + (n - 1) * 0.12;
+        if (score < bestScore) {
+          bestScore = score;
+          best = cand;
+        }
+      }
+      lines = best;
     }
-    while (size > (long ? 34 : 38) && lines.some((l) => ctx.measureText(l).width > W - 180)) {
+    while (size > (long ? 34 : 38) && lines.some((l) => ctx.measureText(l).width > avail)) {
       size -= 2;
       ctx.font = `600 ${size}px ${FONT}`;
     }
     const textW = Math.max(...lines.map((l) => ctx.measureText(l).width));
-    const subSize = 34;
-    ctx.font = `500 ${subSize}px ${FONT}`;
-    const subLines = sub.length > 0 ? wrapLines(sub, 60, 2) : [];
-    const subW = subLines.length > 0 ? Math.max(...subLines.map((l) => ctx.measureText(l).width)) : 0;
     // v7 (owner's reference): a left-aligned two-level panel: the instruction, then a quieter line
     // (what you just said, in quotes, or a hint), separated by air rather than a rule.
     const lineH = size * 1.2;

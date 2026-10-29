@@ -6,7 +6,7 @@
 //   3 Squeeze (fists closed then opened, "Enough") → Keep (three good things touched)
 //   4 Talk it through (a bubble touched, "That's all") → the journal (Earlier, Close) → Places (the lamp's
 //     globe: next, choose, Full, back to the room) → the volumes (Sound held, a fingertip on the rail, Done)
-//   5 Good night (the bead) → the night → "Stay with me" → 10 min → the fade → "Lights out" → the session ends
+//   5 Good night (the bead) → the night → the closing line and the fade → "Lights out" → the session ends
 // Run by tools/solidite-29oct/parcours.sh (fresh memory, stage, the five parts, the report).
 import { makeHands } from './hands.mjs';
 
@@ -412,18 +412,11 @@ export default async function run({ frame, page, cdp }) {
       await mark(kept ? 'Good night: bead slid by a fingertip' : 'Good night: bead skipped by touch', { out: await js(() => window.__wdd.tension().out) });
     }
     if (!(await until(() => window.__wdd.evening().mode === 'night', 6000))) await fail('the night did not come');
-    if (!(await until(() => window.__wdd.night().step === 2, 22000))) await fail('the lamp never asked to stay');
+    if (!(await until(() => window.__wdd.night().sleep != null, 22000))) await fail('the closing line never came');
     await wait(900);
     await measure('night sky on the ceiling');
-    await mark('night: the lamp asks', { replies: (await snap()).replies, ceiling: (await js(() => window.__wdd.night())).ceiling });
-    await H.poke('keep');
-    await until(() => window.__wdd.night().sleep != null, 4000);
-    await wait(900);
-    const i = await wordIndex(/^10 min$/u);
-    if (i >= 0) await H.poke(`word:${i}`);
-    await wait(700);
-    await mark('night: "Stay with me", 10 min', { sleep: (await js(() => window.__wdd.night())).sleep });
-    await js(() => window.__wdd.sleepSkip(300));
+    await mark('night: the closing line, one button', { replies: (await snap()).replies, ceiling: (await js(() => window.__wdd.night())).ceiling });
+    await js(() => window.__wdd.sleepSkip(10));
     await wait(1500);
     await measure('night: halfway through the fade');
     await mark('night: halfway through the fade', { sleep: (await js(() => window.__wdd.night())).sleep });

@@ -175,7 +175,7 @@ export function mountPlaytest(player: PlayerApi | null = null): void {
   root.innerHTML = `
     <style>
       #wdd-playtest{position:fixed;left:16px;top:16px;z-index:99999;width:min(340px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;
-        font:500 13px/1.4 Manrope,-apple-system,system-ui,sans-serif;color:#fbf6ee;background:rgba(28,23,19,.74);
+        font:500 13px/1.4 "General Sans",-apple-system,system-ui,sans-serif;color:#fbf6ee;background:rgba(28,23,19,.74);
         -webkit-backdrop-filter:blur(22px) saturate(1.3);backdrop-filter:blur(22px) saturate(1.3);
         border:1px solid rgba(255,240,220,.12);border-radius:22px;padding:14px;box-shadow:inset 0 1px 0 rgba(255,250,240,.12),0 18px 50px rgba(0,0,0,.4);
         scrollbar-width:thin;box-sizing:border-box}
@@ -226,12 +226,12 @@ export function mountPlaytest(player: PlayerApi | null = null): void {
       #wdd-playtest.min .body{display:none}
       #wdd-playtest.min .top{margin:0}
       #wdd-hint{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99998;pointer-events:none;
-        font:500 13px/1.3 Manrope,-apple-system,system-ui,sans-serif;color:rgba(255,248,238,.92);background:rgba(28,23,19,.62);
+        font:500 13px/1.3 "General Sans",-apple-system,system-ui,sans-serif;color:rgba(255,248,238,.92);background:rgba(28,23,19,.62);
         -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border:1px solid rgba(255,240,220,.12);border-radius:999px;padding:9px 16px;
         white-space:nowrap;max-width:calc(100vw - 32px);overflow:hidden;text-overflow:ellipsis;transition:opacity .4s;opacity:0}
       #wdd-hint.show{opacity:1}
       #wdd-toast{position:fixed;left:50%;bottom:62px;transform:translateX(-50%);z-index:99998;pointer-events:none;
-        font:600 14px/1.35 Manrope,-apple-system,system-ui,sans-serif;color:#2a1c10;background:#f2b36b;border-radius:16px;padding:9px 16px;
+        font:600 14px/1.35 "General Sans",-apple-system,system-ui,sans-serif;color:#2a1c10;background:#f2b36b;border-radius:16px;padding:9px 16px;
         max-width:min(560px,calc(100vw - 32px));text-align:center;opacity:0;transition:opacity .25s}
       #wdd-toast.show{opacity:1}
       @media (prefers-reduced-motion: reduce){#wdd-hint,#wdd-toast,#wdd-playtest button{transition:none}}

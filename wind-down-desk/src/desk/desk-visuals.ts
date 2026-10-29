@@ -77,7 +77,9 @@ const GLOBE_ROW = { toggle: 0.042, title: 0.108 } as const;
  * 29 Oct (owner, emulated preview on a computer: "no difference between mixed and Full"): there is no camera and
  * no room in the preview, so "Table stays" has nothing to keep. The switch exists only where passthrough does.
  */
-const IMMERSION_SWITCH = typeof document === 'undefined' || !document.documentElement.classList.contains('wdd-preview');
+// Read from the URL: this module is evaluated before the emulator adds its class to the page (as TEXT_SCALE does).
+const IMMERSION_SWITCH =
+  typeof window === 'undefined' || !(new URLSearchParams(window.location.search).get('preview') === '1' && !/OculusBrowser|Quest/i.test(navigator.userAgent));
 /** Height of the globe's title row above the sphere: one row higher when the switch sits under it. */
 function globeTitleDy(): number {
   return IMMERSION_SWITCH ? GLOBE_ROW.title : GLOBE_ROW.toggle - 0.004;
@@ -231,6 +233,13 @@ export class DeskVisuals {
   /** 29 Oct (owner: "the little lights should go dark during another ritual, not to blur the immersion"): set by the
    * evening while a ritual other than Keep runs; the kept lights then fall to a faint glow. */
   keptQuiet = false;
+  /** 29 Oct: the kept lights' own moments (Keep, Your sky): full light whatever glass is open. */
+  keptFull = false;
+  /** 29 Oct (owner, the night): the glass row (Rituals · Places · Sound) fades away; only the question stays. */
+  ornamentsNight = false;
+  /** 29 Oct (the close): the light left as the night fades (1 → 0): the lamp sinks with the room and the stars. */
+  sleepLight = 1;
+  private nightRowK = 0;
   /** Lamp energy this frame (read by the rituals: water reflection, palm glow). */
   energy = 0;
   private readonly worldTmp = new Vector3();
@@ -814,7 +823,8 @@ export class DeskVisuals {
     const n = MENU_PLACES.length;
     const here = this.backdrop.place;
     const name = id === 'room' ? 'Your room' : PLACES[id].name;
-    const hint = id === here ? 'You are here' : id === 'room' ? 'Touch the lamp to come back' : this.globeHint || 'Touch the lamp, or say its name';
+    // 29 Oct (live globe): the world follows the globe, so the line only says where you are, or that it is coming.
+    const hint = id === here ? this.globeHint || 'You are here' : 'On the way…';
     this.globeLabelUniforms.uMap.value.dispose();
     this.globeLabelUniforms.uMap.value = drawGlobeLabel(name, this.globeIndex, n, MENU_PLACES.indexOf(here), hint);
     const keep = [id, MENU_PLACES[(this.globeIndex + 1) % n], MENU_PLACES[(this.globeIndex + n - 1) % n]];
@@ -1045,6 +1055,8 @@ export class DeskVisuals {
     }
     if (this.menuOpen) {
       this.refreshChips();
+      // 29 Oct (live globe): its label turns from "On the way" to "You are here" once the place is around you.
+      this.refreshGlobe();
     }
     return ok;
   }
@@ -1440,6 +1452,7 @@ export class DeskVisuals {
     this.trayUniforms.uPool.value = this.poolK * this.reveal * Math.min(1, this.wake + (this.wakeT < 0 ? 1 : 0)) * (1 - this.lampOut);
     this.dim = approach(this.dim, this.dimTarget, 0.7, dt);
     rig.uDim.value = this.dim;
+    rig.uSleepDark.value = 1 - this.sleepLight;
     for (let i = 0; i < 3; i++) {
       m.uBinGlow.value[i] = approach(m.uBinGlow.value[i], this.binGlowTarget[i], 9, dt);
       m.uSuggest.value[i] = approach(m.uSuggest.value[i], Math.max(this.suggestTarget[i], this.gazeBinTarget[i]), 3.2, dt);
@@ -1457,7 +1470,8 @@ export class DeskVisuals {
         this.captionTarget = 1;
       }
     } else {
-      cap.value = approach(cap.value, this.captionTarget * (1 - this.dim * 0.25) * this.uiK, 6, dt);
+      // 29 Oct (owner: the night's title turned grey and dull): the night never dims the caption — white, legible.
+      cap.value = approach(cap.value, this.captionTarget * (1 - this.dim * (this.night ? 0 : 0.25)) * this.uiK, 6, dt);
     }
     // While the plan card is up, it carries the title: the caption steps aside (fades, rises a little).
     const lift = this.captionLift.step(dt, 120, 20);
@@ -1578,22 +1592,27 @@ export class DeskVisuals {
     // 24 Oct: the ritual menu is modal too: Places and Sound step away while it is open (one menu at a time; and the
     // fifth ritual row costs no draw call: 25 per eye at most).
     this.ritualModalK = approach(this.ritualModalK, this.ritualsOpen ? 1 : 0, 6, dt);
-    // 29 Oct: the kept lights step back while glass is open to read (ritual menu, a page, Places).
+    // 29 Oct: the kept lights step back whenever there is glass to read (a question and its replies, words to
+    // touch, a page, a menu) and during the other rituals and the night; full light only in their own moments (Keep,
+    // Your sky) or when nothing is open.
     const hush = this.lights.skyUniforms.uKeptHush;
-    hush.value = approach(hush.value, this.keptQuiet || this.ritualsOpen || this.cardTarget === 1 || this.placesOpen ? 1 : 0, 3, dt);
+    const reading = this.ritualsOpen || this.cardTarget === 1 || this.placesOpen || this.replyLabels != null || this.wordsOpen;
+    hush.value = approach(hush.value, !this.keptFull && (this.keptQuiet || reading) ? 1 : 0, 3, dt);
+    this.nightRowK = approach(this.nightRowK, this.ornamentsNight ? 1 : 0, 2.5, dt);
+    const nightRow = 1 - this.nightRowK;
     const modal = 1 - this.ritualModalK;
-    this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal;
+    this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal * nightRow;
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.
-    this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6) && this.ritualModalK < 0.95;
+    this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6) && this.ritualModalK < 0.95 && this.nightRowK < 0.98;
     // 26 Oct (stability pass, draw budget): the lamp showing the places is modal too — Rituals and Sound step away
     // (× and the voice close it), two draws per eye saved: 23 per eye with the globe open.
     const globeModal = 1 - this.globeK;
-    this.ritualsOrnament.visible = !this.ornamentsHidden && this.globeK < 0.95;
-    this.voiceButton.visible = !this.ornamentsHidden && this.ritualModalK < 0.95 && this.globeK < 0.95;
+    this.ritualsOrnament.visible = !this.ornamentsHidden && this.globeK < 0.95 && this.nightRowK < 0.98;
+    this.voiceButton.visible = !this.ornamentsHidden && this.ritualModalK < 0.95 && this.globeK < 0.95 && this.nightRowK < 0.98;
     this.ornamentUniforms.uHighlight.value = placesHover;
     this.ornament.scale.setScalar((1 + 0.06 * placesHover) * (1 - 0.12 * Math.min(1, menu)));
     const voiceHover = this.hover.voice.step(dt);
-    this.voiceUniforms.uOpacity.value = ornamentOpacity * modal * globeModal;
+    this.voiceUniforms.uOpacity.value = ornamentOpacity * modal * globeModal * nightRow;
     this.voiceUniforms.uHighlight.value = voiceHover;
     this.voiceButton.scale.setScalar(1 + 0.06 * voiceHover);
     const keepHover = this.hover.keep.step(dt);
@@ -1673,7 +1692,7 @@ export class DeskVisuals {
     this.lampOut = approach(this.lampOut, this.night ? 1 : 0, this.night ? 0.18 : 2, dt);
     const out = this.lampOut;
     const candle = out > 0.6 ? 1 + 0.12 * Math.sin(t * 2 * Math.PI * 1.7) * (1 - out) : 1;
-    const evening = (1 - 0.22 * this.eveningDepth) * (1 - out) * candle;
+    const evening = (1 - 0.22 * this.eveningDepth) * (1 - out) * candle * this.sleepLight;
     const energy = (0.62 + this.orbListening * 0.45 + o.uLevel.value * 0.8 + o.uHover.value * 0.25 + this.speak * 0.4 + o.uThinking.value * 0.2) * wakeK * (1 - this.orbMuted * 0.8) * life * evening;
     // The moon's halo is wider and warmer than the little lamp's (the glow quad scales with the globe).
     const moon = this.orbUniforms.uMoon.value;
@@ -1685,7 +1704,7 @@ export class DeskVisuals {
     // The globe's light follows it (and grows with it: the moon lights the tray and your hands).
     const s = this.orbPose.scale;
     // The main light of the tray as the night comes: a warm pool on the wood, the bowls and the stones.
-    rig.uOrbPower.value = (0.06 * (1 - out) + energy * (0.24 + 0.14 * this.eveningDepth)) * this.reveal * (1 + (s - 1) * 0.55) * (1 - 0.45 * Math.max(this.globeK, this.skyK));
+    rig.uOrbPower.value = (0.06 * (1 - out) * this.sleepLight + energy * (0.24 + 0.14 * this.eveningDepth)) * this.reveal * (1 + (s - 1) * 0.55) * (1 - 0.45 * Math.max(this.globeK, this.skyK));
     this.root.updateMatrixWorld();
     this.orb.getWorldPosition(this.worldTmp);
     rig.uOrbPos.value.copy(this.worldTmp);
@@ -1750,7 +1769,7 @@ export class DeskVisuals {
       else if (this.ritualsOpen && rm > 0.02) chip.mesh.visible = true;
     });
     const ritualsHover = this.hover.rituals.step(dt);
-    this.ritualsUniforms.uOpacity.value = ornamentOpacity * (1 - this.globeK);
+    this.ritualsUniforms.uOpacity.value = ornamentOpacity * (1 - this.globeK) * (1 - this.nightRowK);
     this.ritualsUniforms.uHighlight.value = ritualsHover;
     this.ritualsOrnament.scale.setScalar(1 + 0.06 * ritualsHover);
     this.lights.flush();

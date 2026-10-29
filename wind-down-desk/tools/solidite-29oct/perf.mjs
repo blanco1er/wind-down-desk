@@ -34,7 +34,7 @@ export default async function run({ frame, page, cdp }) {
     if (s === 'squeeze') await ev(`d.place('room'); d.ritual('squeeze'); await w(5000); const h = window.IWER_DEVICE.hands; const l = d.deskPoint(-0.12, 0.13, 0.2), r = d.deskPoint(0.12, 0.13, 0.2); h.left.position.set(l.x, l.y, l.z); h.right.position.set(r.x, r.y, r.z); h.left.poseId = 'point'; h.right.poseId = 'point'; await w(1500);`);
     if (s === 'keep') await ev(`const h = window.IWER_DEVICE.hands; h.left.poseId = 'default'; h.right.poseId = 'default'; d.ritual('keep'); await w(1500); d.keep('A good meal'); await w(400); d.keep('Rest'); await w(400); d.keep('A laugh'); await w(4000);`);
     if (s === 'journal') await ev(`d.journal('open'); await w(2500);`);
-    if (s === 'night') await ev(`d.journal('close'); await w(800); d.night('good night'); await w(1500); if (d.tension().side === 'out') d.tension('skip'); await w(14000); d.night('stay'); await w(1500); d.sleepSkip(200); await w(1500);`);
+    if (s === 'night') await ev(`d.journal('close'); await w(800); d.night('good night'); await w(1500); if (d.tension().side === 'out') d.tension('skip'); await w(14000); d.sleepSkip(10); await w(1500);`);
     results.push(...(await measure(s)));
   }
   await ev(`d.film?.hide(false);`);
