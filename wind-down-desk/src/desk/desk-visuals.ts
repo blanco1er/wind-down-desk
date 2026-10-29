@@ -228,6 +228,9 @@ export class DeskVisuals {
   private skyCaptionShift = 0;
   /** v6: the bowls slide into the tray (0 = up, 1 = gone). */
   bowlsAwayTarget = 0;
+  /** 29 Oct (owner: "the little lights should go dark during another ritual, not to blur the immersion"): set by the
+   * evening while a ritual other than Keep runs; the kept lights then fall to a faint glow. */
+  keptQuiet = false;
   /** Lamp energy this frame (read by the rituals: water reflection, palm glow). */
   energy = 0;
   private readonly worldTmp = new Vector3();
@@ -1577,7 +1580,7 @@ export class DeskVisuals {
     this.ritualModalK = approach(this.ritualModalK, this.ritualsOpen ? 1 : 0, 6, dt);
     // 29 Oct: the kept lights step back while glass is open to read (ritual menu, a page, Places).
     const hush = this.lights.skyUniforms.uKeptHush;
-    hush.value = approach(hush.value, this.ritualsOpen || this.cardTarget === 1 || this.placesOpen ? 1 : 0, 4, dt);
+    hush.value = approach(hush.value, this.keptQuiet || this.ritualsOpen || this.cardTarget === 1 || this.placesOpen ? 1 : 0, 3, dt);
     const modal = 1 - this.ritualModalK;
     this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal;
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.

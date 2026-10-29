@@ -3524,6 +3524,8 @@ export class RitualSystem extends createSystem({
     if (this.pauseGate.paused) return;
     const dt = Math.min(delta, 0.05);
     this.elapsed += dt;
+    // 29 Oct: Keep's lights fall quiet during the other rituals (their own moment stays theirs).
+    this.visuals.keptQuiet = this.mode === 'unload' || this.mode === 'breathe' || this.mode === 'squeeze' || this.mode === 'release' || this.mode === 'talk';
     timeUniform.value = this.elapsed;
     const now = performance.now();
     this.voice.userSpeaking = services.voice.recording;
