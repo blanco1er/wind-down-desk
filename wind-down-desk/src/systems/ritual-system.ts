@@ -122,6 +122,9 @@ import { TensionRail } from '../desk/tension-rail.ts';
 import { goodThing, isKeepDone, KEEP_COUNT, KEEP_LINES, keepChoices, keepLine, KEPT_FLIGHT, keptCrown, keptPlace, keptPlaceNear, keptSummary } from '../logic/keep.ts';
 /** 29 Oct: world size of a kept light's quad: tonight's (in view, lighting the tray) and earlier evenings' (the ring). */
 const KEPT_NEAR_SIZE = 0.17;
+/** 29 Oct: the public computer preview (?preview=1 off a Quest) has no camera, so no real room to show in Mixed. */
+const NO_CAMERA =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1' && !/OculusBrowser|Quest/i.test(navigator.userAgent);
 /** Browsing the globe of Places: the world follows this long after the last ‹ › (ms). */
 const GLOBE_SETTLE_MS = 900;
 /** How many kept lights stay on the wall (the most recent): the rest live in Your sky. */
@@ -474,6 +477,8 @@ export class RitualSystem extends createSystem({
   private mouseHover: string | null = null;
   private readonly pickRay = new Raycaster();
   private readonly pickNdc = new Vector2();
+  /** The place set aside by the computer preview's black Mixed (NO_CAMERA), null otherwise. */
+  private previewMixedFrom: PlaceId | null = null;
   /** The pending live switch of the globe of Places (stepGlobe). */
   private globeSettle: number | null = null;
   private readonly starIds = Array.from({ length: STAR_SLOTS }, (_, i) => `star:${i}`);
@@ -2140,6 +2145,8 @@ export class RitualSystem extends createSystem({
   /** Changes place (crossfade, the desk light follows). Your room is always one word away. */
   private async goPlace(id: PlaceId, via: 'hand' | 'voice', browsing = false): Promise<void> {
     track('place', { id, via }, `place:${id}`);
+    // A place (or your room) chosen while the computer preview shows black Mixed: back to its normal state first.
+    this.endPreviewMixed();
     const place = PLACES[id];
     if (id === this.visuals.backdrop.place) {
       if (!browsing) this.visuals.openPlaces(false);
@@ -2248,6 +2255,24 @@ export class RitualSystem extends createSystem({
 
   private setImmersion(level: Immersion): void {
     track('immersion', { level }, `immersion:${level}`);
+    // 29 Oct (owner, computer preview: "no difference between Mixed and Full — make it black, so we know there is no
+    // camera"): without a camera, Mixed sets the place aside and shows black, and says where your room would be.
+    if (NO_CAMERA && level === 'table' && this.visuals.backdrop.place !== 'room') {
+      this.previewMixedFrom = this.visuals.backdrop.place;
+      this.visuals.previewMixed = true;
+      this.visuals.backdrop.setImmersion('table');
+      this.visuals.setImmersionFull(false);
+      void this.visuals.goPlace('room');
+      this.flash('Mixed. On Quest, your real room is here.', 4, 'No camera on a computer, so it stays dark.');
+      return;
+    }
+    if (NO_CAMERA && level === 'full' && this.previewMixedFrom != null) {
+      const back = this.previewMixedFrom;
+      this.endPreviewMixed();
+      void this.visuals.goPlace(back);
+      this.flash('Full. The place surrounds you.', 2.2);
+      return;
+    }
     if (this.visuals.backdrop.place === 'room') {
       this.flash('Choose a place first: say "take me to the lake".', 3);
       return;
@@ -2255,6 +2280,15 @@ export class RitualSystem extends createSystem({
     this.visuals.backdrop.setImmersion(level);
     this.visuals.setImmersionFull(level === 'full');
     this.flash(level === 'full' ? 'Full. The place surrounds you.' : 'Mixed. Your room stays with you.', 2.2);
+  }
+
+  /** Leaves the computer preview's black Mixed (a place chosen, Full, or your room asked for). */
+  private endPreviewMixed(): void {
+    if (this.previewMixedFrom == null) return;
+    this.previewMixedFrom = null;
+    this.visuals.previewMixed = false;
+    this.visuals.backdrop.setImmersion('full');
+    this.visuals.setImmersionFull(true);
   }
 
   // ------------------------------------------------------------- the evening (v6)

@@ -252,6 +252,8 @@ export class DeskVisuals {
   /** 29 Oct (owner: "the little lights should go dark during another ritual, not to blur the immersion"): set by the
    * evening while a ritual other than Keep runs; the kept lights then fall to a faint glow. */
   keptQuiet = false;
+  /** 29 Oct (computer preview, no camera): Mixed shows black, the place set aside — the capsule stays to come back. */
+  previewMixed = false;
   /** 29 Oct: the kept lights' own moments (Keep, Your sky): full light whatever glass is open. */
   keptFull = false;
   /** 29 Oct (owner, the night): the glass row (Rituals · Places · Sound) fades away; only the question stays. */
@@ -1636,7 +1638,7 @@ export class DeskVisuals {
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.
     this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6) && this.ritualModalK < 0.95 && this.nightRowK < 0.98 && this.settingsModalK < 0.95;
     // 29 Oct (owner): « Mixed | Full » joins the row's end while you are in a place; the row stays centred.
-    const inPlace = PLACES[this.backdrop.place].photo != null;
+    const inPlace = PLACES[this.backdrop.place].photo != null || this.previewMixed;
     this.immersionRowK = approach(this.immersionRowK, inPlace && !this.ornamentsHidden && !this.ornamentsNight ? 1 : 0, 6, dt);
     const ik = this.immersionRowK;
     const rowW = 3 * BOTTOM_ROW.button + 2 * BOTTOM_ROW.gap + ik * (BOTTOM_ROW.gap + BOTTOM_ROW.capsule);
