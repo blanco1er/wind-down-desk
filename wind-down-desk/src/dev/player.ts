@@ -48,6 +48,9 @@ interface Wdd {
   evening(): { mode: string; weight: { held: boolean } | null };
   debug(): { stones: Map<string, { id: string; mesh: { position: V3 }; dissolving: number }> };
   film?: { grade(night?: number, blur?: number): unknown };
+  pickButton?(ndcX: number, ndcY: number): string | null;
+  hoverButton?(ndcX: number | null, ndcY?: number): string | null;
+  press?(action: string): void;
 }
 
 const g = window as unknown as { __wdd?: Wdd; IWER_DEVICE?: Device; __wddPlayer?: unknown };
@@ -127,7 +130,10 @@ export function mountPlayer(world: World): PlayerApi | null {
   quietRoom();
   // Glass buttons and menus: IWSDK's own mouse path into the scene, kept on during the (emulated) session.
   const cps = world.getSystem(CanvasPointerSystem);
-  if (cps != null) (cps.config.activeDuringXR as { value: boolean }).value = true;
+  // 29 Oct: the glass buttons are clicked through the desk's own pick at the click's exact point (pickButton below),
+  // not the pointer library — it resolved a quick click on the last frame's hover (› fired ‹ on a busy Mac).
+  const ownPick = typeof d.pickButton === 'function' && typeof d.press === 'function';
+  if (cps != null) (cps.config.activeDuringXR as { value: boolean }).value = !ownPick;
   // 29 Oct (owner: "the buttons don't work", ‹ › ✕ of the globe): the emulated Quest keeps its 63 mm IPD while the
   // screen shows ONE centred view, so the mouse ray left from an eye 3 cm aside — every hit zone sat ≈ 25 px off its
   // button (big chips still caught it, small round buttons never). One eye at the centre: the ray is the view.
@@ -469,6 +475,11 @@ export function mountPlayer(world: World): PlayerApi | null {
   // ---------------------------------------------------------------- mouse & keyboard
   type Drag = { id: number; x: number; y: number; moved: boolean; kind: 'look' | 'stone'; hit: Hit; t: number };
   let drag: Drag | null = null;
+  /** The event's point in the canvas, as normalized device coordinates. */
+  const ndcOf = (e: PointerEvent): [number, number] => {
+    const r = (dev.appCanvas ?? document.documentElement).getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * 2 - 1, 1 - ((e.clientY - r.top) / r.height) * 2];
+  };
   const onCanvas = (e: Event) => {
     const c = dev.appCanvas;
     return dev.activeSession != null && c != null && e.target === c;
@@ -505,7 +516,8 @@ export function mountPlayer(world: World): PlayerApi | null {
       }
       if (c != null && e.target === c) {
         const over = holding != null ? hitAt(e.clientX, e.clientY, true) : hitAt(e.clientX, e.clientY, false);
-        c.style.cursor = holding != null ? (over != null ? 'copy' : 'grabbing') : over != null ? (over.kind === 'lamp' ? 'pointer' : 'grab') : drag?.moved ? 'move' : '';
+        const button = ownPick && holding == null && !drag?.moved ? d.hoverButton!(...ndcOf(e)) : null;
+        c.style.cursor = button != null ? 'pointer' : holding != null ? (over != null ? 'copy' : 'grabbing') : over != null ? (over.kind === 'lamp' ? 'pointer' : 'grab') : drag?.moved ? 'move' : '';
       }
     },
     true,
@@ -541,6 +553,13 @@ export function mountPlayer(world: World): PlayerApi | null {
         else if (releaseMode()) status('Clique le bol d’eau pour la laisser couler (Échap pour la reposer).');
         else status('Clique un des trois bols : Tomorrow, Later ou Let go (Échap pour la reposer).');
         return;
+      }
+      if (ownPick) {
+        const action = d.pickButton!(...ndcOf(e));
+        if (action != null) {
+          d.press!(action);
+          return;
+        }
       }
       if (was.hit?.kind === 'lamp' || hitAt(e.clientX, e.clientY, false)?.kind === 'lamp') api.onLamp?.();
     },

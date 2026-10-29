@@ -24,6 +24,7 @@ import {
   PokeInteractable,
   Pressed,
   Quaternion,
+  Raycaster,
   RayInteractable,
   Vector2,
   Vector3,
@@ -452,6 +453,10 @@ export class RitualSystem extends createSystem({
   /** The journal (Your sky): its pages, the one shown, the star looked at. */
   private journal: { entries: JournalEntry[]; index: number; week: string } | null = null;
   private starTexts: Array<{ text: string; date: string; seed: number }> = [];
+  /** The computer preview's own hover (pickButtonAt), so it can be cleared. */
+  private mouseHover: string | null = null;
+  private readonly pickRay = new Raycaster();
+  private readonly pickNdc = new Vector2();
   /** The pending live switch of the globe of Places (stepGlobe). */
   private globeSettle: number | null = null;
   private readonly starIds = Array.from({ length: STAR_SLOTS }, (_, i) => `star:${i}`);
@@ -2026,6 +2031,29 @@ export class RitualSystem extends createSystem({
       this.visuals.showInGlobe(last != null && isPlaceId(last) && last !== 'room' ? last : 'moon-lake');
     }
     track('globe', { step: 'open' }, 'globe:open');
+  }
+
+  /** The nearest shown, pointable glass button (or the lamp while Places is open) on the camera ray through `ndc`. */
+  private pickButtonAt(ndcX: number, ndcY: number): string | null {
+    this.pickRay.setFromCamera(this.pickNdc.set(ndcX, ndcY), this.world.camera);
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const e of this.queries.buttons.entities) {
+      if (!e.hasComponent(RayInteractable)) continue;
+      const o = e.object3D as (Mesh & { pointerEvents?: string }) | undefined;
+      if (o == null || o.pointerEvents === 'none') continue;
+      let shown = o.visible;
+      o.traverseAncestors((a) => {
+        if (!a.visible) shown = false;
+      });
+      if (!shown) continue;
+      const hit = this.pickRay.intersectObject(o, false)[0];
+      if (hit != null && hit.distance < bestD) {
+        bestD = hit.distance;
+        best = String(e.getValue(DeskButton, 'action'));
+      }
+    }
+    return best;
   }
 
   private stepGlobe(step: number): void {
@@ -5196,6 +5224,22 @@ export class RitualSystem extends createSystem({
         return deskToWorld(this.frame, { x: def.x, y: 0.03, z: def.z });
       },
       press: (action: string) => this.onButton(action),
+      /**
+       * 29 Oct (computer preview, owner: "the buttons don't work"): the visible glass button under a screen point
+       * (NDC), raycast NOW from the camera. The pointer library resolves a click on the last frame's hover — at
+       * 20 i/s on a busy Mac a quick click landed on the previous spot (› fired ‹). The preview clicks through this.
+       */
+      pickButton: (ndcX: number, ndcY: number) => this.pickButtonAt(ndcX, ndcY),
+      /** The same pick for the hover light (null clears it). */
+      hoverButton: (ndcX: number | null, ndcY = 0) => {
+        const action = ndcX == null ? null : this.pickButtonAt(ndcX, ndcY);
+        if (action !== this.mouseHover) {
+          if (this.mouseHover != null) this.visuals.setHover(this.mouseHover, false);
+          if (action != null) this.visuals.setHover(action, true);
+          this.mouseHover = action;
+        }
+        return action;
+      },
       /** Talk it through (tests): its state; `minutes` moves its clock (e.g. 41 → the end is announced). */
       talk: (minutes?: number) => {
         if (minutes != null && this.talk != null) this.talk.startedAt = this.elapsed - minutes * 60;
