@@ -102,7 +102,7 @@ export class LightField {
   private readonly travel: InstancedBufferAttribute;
   /** Persistent stars and kept lights: overall level (the slow fade of "stay till I sleep"), their slow breath, and
    * the one star picked in the journal (−1: none). */
-  readonly skyUniforms = { uStarDim: { value: 1 }, uStarBreath: { value: 0 }, uPick: { value: -1 }, uPickK: { value: 0 } };
+  readonly skyUniforms = { uStarDim: { value: 1 }, uStarBreath: { value: 0 }, uPick: { value: -1 }, uPickK: { value: 0 }, uKeptHush: { value: 0 } };
   /** 29 Oct: the kept word (texture, where its light is, how visible). */
   private readonly wordUniforms = { uWord: { value: null as CanvasTexture | null }, uWordPos: { value: new Vector3() }, uWordK: { value: 0 }, uWordSide: { value: 1 } };
   private readonly wordCanvas: HTMLCanvasElement | null;
@@ -172,6 +172,7 @@ export class LightField {
         uniform float uStarBreath;
         uniform float uPick;
         uniform float uPickK;
+        uniform float uKeptHush;
         uniform vec3 uWordPos;
         uniform float uWordK;
         uniform float uWordSide;
@@ -284,6 +285,10 @@ export class LightField {
               prev = pos;
             }
             alpha *= uStarDim * (1.0 - uStarBreath * 0.6);
+            // 29 Oct (owner: three bright halos over the ritual menu): while a menu or a page is open the kept
+            // lights step back to a soft glow, so they never glare over glass you read.
+            alpha *= 1.0 - 0.75 * uKeptHush;
+            glow *= 1.0 - 0.5 * uKeptHush;
             vAlpha = alpha;
             vKind.w = glow;
             // 29 Oct: on a wall across the room it keeps the size it has at the desk (same angle, never a dot).
@@ -633,7 +638,7 @@ export class LightField {
       const p = k <= 0 ? l.from : keptFlight(l.from, l.to, k, l.seed);
       const born = Math.min(1, Math.max(0, (now - l.born) / 0.45));
       const breath = 0.5 + 0.5 * Math.sin(now * (0.95 + 0.25 * l.seed) + l.seed * 11);
-      lights[i].set(p.x, p.y, p.z, born * (0.85 + 0.3 * breath) * this.skyUniforms.uStarDim.value);
+      lights[i].set(p.x, p.y, p.z, born * (0.85 + 0.3 * breath) * this.skyUniforms.uStarDim.value * (1 - 0.5 * this.skyUniforms.uKeptHush.value));
     }
     const w = this.word;
     const wk = w == null ? 0 : keptWordAlpha(now - w.at);

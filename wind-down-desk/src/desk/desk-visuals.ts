@@ -1469,7 +1469,9 @@ export class DeskVisuals {
     const aside = this.asideSpring.step(dt, 150, 24);
     this.caption.scale.setScalar(this.textK * (1 - (1 - CAPTION_ASIDE_SCALE) * Math.max(0, Math.min(1, aside))));
     const inPlace = PLACES[this.backdrop.place].photo != null;
-    this.toggleSpring.target = inPlace ? 1 : 0;
+    // 29 Oct (owner: "too much on screen"): the "Table stays | Full" switch belongs to choosing a place — it shows
+    // only while Places (the grid or the lamp's globe) is open, never under every caption of the evening.
+    this.toggleSpring.target = inPlace && (this.placesOpen || this.globeK > 0.02) ? 1 : 0;
     const tk = Math.max(0, Math.min(1, this.toggleSpring.step(dt, 150, 24)));
     // v8: in Breathe the moon grows: the caption rises with it, so the moon never covers its lower line.
     const moonLift = Math.max(0, this.orbPose.scale - 1.5) * 0.014;
@@ -1573,6 +1575,9 @@ export class DeskVisuals {
     // 24 Oct: the ritual menu is modal too: Places and Sound step away while it is open (one menu at a time; and the
     // fifth ritual row costs no draw call: 25 per eye at most).
     this.ritualModalK = approach(this.ritualModalK, this.ritualsOpen ? 1 : 0, 6, dt);
+    // 29 Oct: the kept lights step back while glass is open to read (ritual menu, a page, Places).
+    const hush = this.lights.skyUniforms.uKeptHush;
+    hush.value = approach(hush.value, this.ritualsOpen || this.cardTarget === 1 || this.placesOpen ? 1 : 0, 4, dt);
     const modal = 1 - this.ritualModalK;
     this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal;
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.

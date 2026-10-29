@@ -2118,7 +2118,9 @@ export class RitualSystem extends createSystem({
     const memory = services.memory;
     const proposal = proposeRitual({ hour: new Date().getHours(), heard: heard ?? undefined, doneTonight: memory.doneTonight(), justDone, firstEvening: this.firstEvening, tension: memory.tonightRecord()?.tensionIn ?? null });
     this.proposal = proposal;
-    this.openRitualMenu(true);
+    // 29 Oct (owner: "Ready for sleep?" and its Yes / Not now over the whole open menu — two questions at once):
+    // one question at a time. The menu opens on "Not now" or on the Rituals button, with the proposal tinted.
+    this.openRitualMenu(false);
     this.say(proposal.line, sub ?? (services.style.quiet ? 'Touch Yes, or Not now.' : proposal.sub));
   }
 

@@ -943,7 +943,10 @@ export function drawRitualChip(id: 'unload' | 'breathe' | 'release' | 'talk' | '
     ctx.fillStyle = DS.text.secondary;
     ctx.fillText(sub, 206, 148, 500);
   }
-  const stat = evenings > 0 ? `${evenings} ${evenings === 1 ? 'evening' : 'evenings'}` : '';
+  // 29 Oct (owner: "the screen is crowded with text"): no small "1 evening" count on the rows any more — one word
+  // per row (the journal keeps the counts). `evenings` stays in the signature for the callers.
+  void evenings;
+  const stat = '';
   ctx.font = `600 32px ${FONT}`;
   if (stat.length > 0) {
     ctx.textAlign = 'right';
