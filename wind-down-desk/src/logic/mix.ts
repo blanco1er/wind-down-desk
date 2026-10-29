@@ -2,7 +2,7 @@
  * 28 Oct — the voice and the sound, apart (pure, unit-tested). The most common complaint about guided relaxation
  * apps is a voice too loud for its ambience: the lamp's voice is now a little softer by default, and the person sets
  * the voice and the rest of the sound (ambience, places, cues) separately — by voice ("voice softer", "sound louder"),
- * on two rails in the headset (hold the Sound button), or on the 2D page before entering. "Sound off" still silences
+ * on two rails in the headset (Settings, then Volume), or on the 2D page before entering. "Sound off" still silences
  * everything (master volume): this mix sits under it.
  */
 import { normalize } from './text.ts';

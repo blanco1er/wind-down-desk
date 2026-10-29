@@ -58,7 +58,7 @@ export default async function run({ frame, page, cdp }) {
       if (n === 'volumes') {
         for (const u of [0, 1]) for (const back of [false, true]) { const p = d.railWorld(u, back); if (p) pts.push(p); }
         // The Sound button (action "voice"); "Done" is a reply chip, already in fit-check's essentials.
-        for (const a of ['voice']) { const b = d.buttonWorld?.(a); if (b && b.shown) pts.push(b); }
+        for (const a of ['settings', 'immersion']) { const b = d.buttonWorld?.(a); if (b && b.shown) pts.push(b); }
       } else if (n === 'keep') {
         const L = v.lights;
         for (let i = 96; i < 96 + 36; i++) {

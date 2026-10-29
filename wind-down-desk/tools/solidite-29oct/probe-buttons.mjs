@@ -5,7 +5,7 @@ export default async function run({ frame, page, cdp }) {
   const js = (fn, a) => f.evaluate(fn, a);
   cdp.on('Page.screencastFrame', (e) => cdp.send('Page.screencastFrameAck', { sessionId: e.sessionId }).catch(() => {}));
   await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 20, maxWidth: 320, maxHeight: 180, everyNthFrame: 3 });
-  const acts = ['rituals', 'places', 'voice', 'orb', 'keep', 'lighter', 'immersion', 'move-desk', 'globe-prev', 'globe-next', 'globe-close', 'ritual:sky', 'place:room'];
+  const acts = ['rituals', 'places', 'settings', 'orb', 'keep', 'lighter', 'immersion', 'move-desk', 'globe-prev', 'globe-next', 'globe-close', 'ritual:sky', 'place:room'];
   const shown = () => js((a) => Object.fromEntries(a.map((x) => { const b = window.__wdd.buttonWorld(x); return [x, b == null ? 'absent' : b.shown ? (b.poke ? 'ok' : 'nopoke') : 'hidden']; })), acts);
   const out = {};
   const st = () => js(() => ({ mode: window.__wdd.evening().mode, menu: window.__wdd.debug().visuals.ritualMenuOpen, places: window.__wdd.globe().open, place: window.__wdd.debug().visuals.backdrop.place, journal: window.__wdd.journal().open }));

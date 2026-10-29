@@ -31,6 +31,8 @@ test('every place can be reached by voice, and your room is always one sentence 
   assert.deepEqual(cmd('Places'), { type: 'places' });
   assert.deepEqual(cmd('full immersion'), { type: 'immersion', level: 'full' });
   assert.deepEqual(cmd('keep my table'), { type: 'immersion', level: 'table' });
+  assert.deepEqual(cmd('Full'), { type: 'immersion', level: 'full' });
+  assert.deepEqual(cmd('mixed'), { type: 'immersion', level: 'table' });
 });
 
 test('a brain dump that mentions a place never moves you', () => {

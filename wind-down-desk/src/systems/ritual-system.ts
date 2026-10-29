@@ -53,6 +53,23 @@ const JOURNAL_GLOBE = { x: 0.33, y: 0.2, z: -0.06 } as const;
 
 /** The last place chosen (not your room), prepared first in calm moments. */
 const LAST_PLACE_KEY = 'wdd.lastPlace';
+/** 29 Oct: the one-time line about the bottom row's « Mixed | Full » capsule, and where it is remembered. */
+const IMMERSION_HINT = 'Mixed keeps your room. Full surrounds you.';
+const IMMERSION_HINT_KEY = 'wdd.immersionHint';
+function immersionHintSeen(): boolean {
+  try {
+    return localStorage.getItem(IMMERSION_HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function markImmersionHintSeen(): void {
+  try {
+    localStorage.setItem(IMMERSION_HINT_KEY, '1');
+  } catch {
+    // Private window: said again next time, never an error.
+  }
+}
 
 /** Seconds of silence before the example stone when suggestion bubbles are offered (8 s otherwise, onboarding.ts). */
 const BUBBLES_BEFORE_EXAMPLE = 14;
@@ -484,9 +501,8 @@ export class RitualSystem extends createSystem({
   private mixIdle = 0;
   private mixTouch: 'voice' | 'sound' | null = null;
   private mixTick = -1;
-  /** The Sound button held: a short touch mutes as always; held 0.7 s, the mix opens. */
-  private soundHeldAt = -1;
-  private soundHoldUsed = false;
+  /** 29 Oct: « Mixed keeps your room. Full surrounds you. » is said once, at the first place (then never). */
+  private immersionHintPending = false;
 
   init(): void {
     this.layout = createDeskLayout();
@@ -502,6 +518,7 @@ export class RitualSystem extends createSystem({
     services.access.onChange((prefs) => {
       this.access = prefs;
       this.visuals.setAccess(prefs.contrast, prefs.largeText);
+      if (this.visuals.settingsShown) this.visuals.refreshSettings(this.settingStates());
     });
     // Seven pebble shapes (size, oval, egg, tilt, thickness all differ); stones cycle through them.
     for (let seed = 1; seed <= 7; seed++) {
@@ -520,7 +537,8 @@ export class RitualSystem extends createSystem({
     this.visuals.keepEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'keep' });
     this.visuals.lighterEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'lighter' });
     this.visuals.ornamentEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'places' });
-    this.visuals.voiceEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'voice' });
+    // 29 Oct: the bottom row's third button is Settings (it was Sound: the voice and the mix are rows of Settings).
+    this.visuals.voiceEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'settings' });
     this.visuals.immersionEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'immersion' });
     this.visuals.moveEntity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: 'move-desk' });
     this.visuals.setVoiceMuted(this.voice.muted);
@@ -530,6 +548,9 @@ export class RitualSystem extends createSystem({
     }
     for (const b of this.visuals.globeButtons) {
       b.entity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: b.action });
+    }
+    for (const chip of this.visuals.settingChips) {
+      chip.entity.addComponent(RayInteractable).addComponent(PokeInteractable).addComponent(DeskButton, { action: `setting:${chip.id}` });
     }
     // v6: the ritual ornament ("Rituals", or "Finish" during a ritual) and the menu rows.
     this.rv = new RitualVisuals(this.world, this.visuals);
@@ -577,18 +598,7 @@ export class RitualSystem extends createSystem({
         if (this.elapsed - this.answerPressAt < ANSWER_DEBOUNCE_S) return;
         this.answerPressAt = this.elapsed;
       }
-      // 28 Oct: the Sound button acts on release (a short touch mutes as always); held 0.7 s it opens the mix.
-      if (action === 'voice') {
-        this.soundHeldAt = this.elapsed;
-        this.soundHoldUsed = false;
-        return;
-      }
       this.onButton(action);
-    });
-    this.queries.pressed.subscribe('disqualify', (entity) => {
-      if (String(entity.getValue(DeskButton, 'action')) !== 'voice' || this.soundHeldAt < 0) return;
-      this.soundHeldAt = -1;
-      if (!this.soundHoldUsed) this.onButton('voice');
     });
     this.queries.hovered.subscribe('qualify', (entity) => {
       const action = String(entity.getValue(DeskButton, 'action'));
@@ -1841,7 +1851,7 @@ export class RitualSystem extends createSystem({
     if (this.mode === 'unload' && action.startsWith('word:')) this.dumpTouched = true;
     // A stone in the hand (or just let go of) means the hand is busy: desk controls next to the bowls ignore it.
     // 1.6 s: the hand coming back from the Let go bowl passes over the lamp (found while filming v5).
-    const nearLamp = action === 'orb' || action === 'places' || action === 'voice' || action === 'rituals' || action.startsWith('place:') || action.startsWith('ritual:') || action.startsWith('globe-');
+    const nearLamp = action === 'orb' || action === 'places' || action === 'voice' || action === 'settings' || action === 'rituals' || action.startsWith('place:') || action.startsWith('ritual:') || action.startsWith('globe-');
     if (nearLamp && (this.queries.held.entities.size > 0 || this.queries.weightHeld.entities.size > 0 || this.elapsed - this.lastDropAt < 1.6)) {
       return;
     }
@@ -1883,6 +1893,18 @@ export class RitualSystem extends createSystem({
     }
     if (action === 'voice') {
       this.setVoice(this.voice.muted);
+      return;
+    }
+    if (action === 'settings') {
+      const open = !this.visuals.settingsShown;
+      if (open) this.closeMix();
+      this.visuals.openSettings(open, this.settingStates());
+      track('settings', { step: open ? 'open' : 'close' }, `settings:${open ? 'open' : 'close'}`);
+      this.cue('tock', { x: 0.1, y: 0.02, z: this.layout.depth / 2 + 0.04 });
+      return;
+    }
+    if (action.startsWith('setting:')) {
+      this.onSetting(action.slice(8));
       return;
     }
     if (action === 'move-desk') {
@@ -2019,7 +2041,7 @@ export class RitualSystem extends createSystem({
       return;
     }
     if (this.visuals.placesOpen) return;
-    this.visuals.setGlobeHint(this.access.gazeSelect ? 'You are here · look at the globe to stay' : 'You are here · touch the globe to stay');
+    this.visuals.setGlobeHint(this.access.gazeSelect ? 'Look at the globe to stay' : 'Touch the globe to stay');
     this.visuals.openPlaces(true);
     if (this.visuals.backdrop.place === 'room') {
       let last: string | null = null;
@@ -2054,6 +2076,39 @@ export class RitualSystem extends createSystem({
       }
     }
     return best;
+  }
+
+  /** 29 Oct: what the Settings switches show. */
+  private settingStates(): { voice: boolean; text: boolean; contrast: boolean; gaze: boolean } {
+    return { voice: !this.voice.muted, text: this.access.largeText, contrast: this.access.contrast, gaze: this.access.gazeSelect };
+  }
+
+  /** 29 Oct: one row of the Settings panel, touched (finger, ray, gaze or the computer's mouse). */
+  private onSetting(id: string): void {
+    track('settings', { step: id }, `settings:${id}`);
+    this.cue('tock', { x: 0.25, y: 0.25, z: -0.1 });
+    if (id === 'volume') {
+      this.visuals.openSettings(false);
+      this.openMix('hand');
+    } else if (id === 'voice') {
+      this.setVoice(this.voice.muted);
+      this.visuals.refreshSettings(this.settingStates());
+    } else if (id === 'text') {
+      this.setAccess({ largeText: !this.access.largeText }, 'button');
+    } else if (id === 'contrast') {
+      this.setAccess({ contrast: !this.access.contrast }, 'button');
+    } else if (id === 'gaze') {
+      this.setAccess({ gazeSelect: !this.access.gazeSelect }, 'button');
+    } else if (id === 'recenter') {
+      this.visuals.openSettings(false);
+      this.onButton('move-desk');
+    } else if (id === 'forget') {
+      this.visuals.openSettings(false);
+      this.confirmForget();
+    } else {
+      this.visuals.openSettings(false);
+      this.refreshCaption();
+    }
   }
 
   private stepGlobe(step: number): void {
@@ -2106,10 +2161,26 @@ export class RitualSystem extends createSystem({
       return;
     }
     this.cue('night', { x: 0, y: 0.4, z: -0.6 });
-    // Browsing the globe: it stays open (the name over the globe says where you are), no caption over it.
-    if (browsing) return;
+    // 29 Oct (owner): the first place ever explains « Mixed | Full » once — a line under the arrival, two pulses.
+    const firstPlace = id !== 'room' && !immersionHintSeen();
+    // Browsing the globe: it stays open (the name over the globe says where you are), no caption over it; the
+    // one-time hint waits for the globe to close.
+    if (browsing) {
+      if (firstPlace) this.immersionHintPending = true;
+      return;
+    }
     window.setTimeout(() => this.visuals.openPlaces(false), via === 'hand' ? 700 : 0);
-    this.flash(place.arrive, 4, id === 'room' ? '' : 'Say "back to my room" anytime.');
+    if (firstPlace) this.showImmersionHint(place.arrive);
+    else this.flash(place.arrive, 4, id === 'room' ? '' : 'Say "back to my room" anytime.');
+  }
+
+  /** The one-time hint of « Mixed | Full » (remembered on this device, like the other preferences). */
+  private showImmersionHint(arrive: string): void {
+    this.immersionHintPending = false;
+    markImmersionHintSeen();
+    this.flash(arrive, 6, IMMERSION_HINT);
+    this.visuals.pulseImmersion();
+    track('immersion', { level: 'hint' }, 'immersion:hint');
   }
 
   /** Prepares one place (panorama on the GPU, living layer compiled, sounds fetched). One at a time. */
@@ -2183,7 +2254,7 @@ export class RitualSystem extends createSystem({
     }
     this.visuals.backdrop.setImmersion(level);
     this.visuals.setImmersionFull(level === 'full');
-    this.flash(level === 'full' ? 'Fully there.' : 'Your table stays with you.', 2.2);
+    this.flash(level === 'full' ? 'Full. The place surrounds you.' : 'Mixed. Your room stays with you.', 2.2);
   }
 
   // ------------------------------------------------------------- the evening (v6)
@@ -2278,6 +2349,7 @@ export class RitualSystem extends createSystem({
 
   /** Starts a ritual (ending any other gently). `carry`: words heard by the agent, used by the ritual. */
   private startRitual(kind: RitualKind, carry?: string, via: 'hand' | 'voice' = 'hand', intro?: string): void {
+    this.visuals.openSettings(false);
     track('ritual-start', { kind, via }, `ritual-start:${kind}`);
     // 28 Oct: choosing a ritual answers the bead's question by itself: it slips back into the tray.
     this.closeTension(false);
@@ -2970,6 +3042,7 @@ export class RitualSystem extends createSystem({
   }
 
   private goodnight(): void {
+    this.visuals.openSettings(false);
     if (this.memoryWorld != null) this.closeMemoryWorld(false);
     // 28 Oct: before the night, once, the bead again ("Before you sleep: how heavy now?"), with tonight's arrival as a
     // faint reflection. Skipped, or "good night" said again: the night comes at once.
@@ -3541,7 +3614,7 @@ export class RitualSystem extends createSystem({
     }
     this.visuals.setVoiceMuted(!on);
     // 28 Oct: once sound is back, how to set the voice and the sound apart (said in the small line only).
-    this.flash(on ? 'Sound on.' : 'Sound off. The captions stay.', on ? 3 : 2.2, on ? 'Hold the Sound button to set the voice and the sound apart.' : '');
+    this.flash(on ? 'Sound on.' : 'Sound off. The captions stay.', on ? 3 : 2.2, on ? 'Settings, then Volume: the voice and the sound apart.' : '');
   }
 
   private refreshOrb(): void {
@@ -3671,6 +3744,10 @@ export class RitualSystem extends createSystem({
     if (this.visuals.placesOpen !== orbE.hasComponent(RayInteractable)) {
       if (this.visuals.placesOpen) orbE.addComponent(RayInteractable);
       else orbE.removeComponent(RayInteractable);
+    }
+    // 29 Oct: a first place reached by browsing the globe: its one-time hint once the globe has closed.
+    if (this.immersionHintPending && !this.visuals.placesOpen && this.visuals.backdrop.place !== 'room') {
+      this.showImmersionHint(PLACES[this.visuals.backdrop.place].arrive);
     }
     // The session ends once the lamp has gone out (≈ 8 s after "lights out" / a second "good night").
     if (this.goodnightAt >= 0 && this.elapsed - this.goodnightAt > 8.5) {
@@ -4588,7 +4665,9 @@ export class RitualSystem extends createSystem({
     this.ask = { labels: ['Journal', 'Close'], actions: [() => this.memoryToJournal(), () => this.closeMemoryWorld(true)], key: 'memory' };
     this.lastPhaseSpoken = '';
     const any = kept.length + Math.min(this.starTexts.length, STAR_SLOTS) > 0;
-    this.say(summary, any ? (this.access.gazeSelect ? 'Look at a light: it tells you what it was.' : 'Look at a light to read it.') : '');
+    // 29 Oct: the sentence is built from your own evenings (never in the voice catalogue): the lamp says it with its
+    // dynamic voice (POST /api/speak, the voice Talk it through uses); no voice on the server → the caption alone.
+    this.lampSpeak(summary, any ? (this.access.gazeSelect ? 'Look at a light: it tells you what it was.' : 'Look at a light to read it.') : '');
   }
 
   /** Leaves Your sky: the lights fly home to the wall (the 12 most recent), the stars come back, the room brightens. */
@@ -5001,12 +5080,6 @@ export class RitualSystem extends createSystem({
   private updateMix(dt: number): void {
     const rails = this.mixRails;
     if (rails == null) return;
-    // The Sound button held: the mix opens (and the release does not mute).
-    if (this.soundHeldAt >= 0 && !this.soundHoldUsed && this.elapsed - this.soundHeldAt >= 0.7) {
-      this.soundHoldUsed = true;
-      if (this.mixOpen) this.closeMix();
-      else this.openMix('hand');
-    }
     if (this.mixOpen) {
       this.mixIdle += dt;
       // A fingertip on a rail sets its level at once (no waiting: you hear it change).

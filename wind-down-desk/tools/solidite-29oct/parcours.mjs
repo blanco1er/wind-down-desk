@@ -389,10 +389,12 @@ export default async function run({ frame, page, cdp }) {
     await until(() => window.__wdd.debug().visuals.backdrop.place === 'room', 8000);
     await mark('Places: back to my room by touch', { place: await js(() => window.__wdd.debug().visuals.backdrop.place) });
     await wait(1000);
-    // The volumes: the Sound button held, a fingertip on the voice rail, Done.
+    // The volumes (29 Oct: Settings, then Volume), a fingertip on the voice rail, Done.
     await closeMenu();
     const muted0 = await js(() => window.__wdd.voice().muted);
-    await H.poke('voice', { holdMs: 1100 });
+    await H.poke('settings');
+    await wait(900);
+    await H.poke('setting:volume');
     if (!(await until(() => window.__wdd.mix().open, 2500))) await fail('the volumes did not open');
     await wait(900);
     await measure('volumes');
@@ -400,7 +402,7 @@ export default async function run({ frame, page, cdp }) {
     await H.slide(v0, Math.max(0.1, v0 - 0.25));
     const v1 = (await js(() => window.__wdd.mix())).voice;
     await H.poke('keep');
-    await mark('volumes: Sound held, voice slid, Done', { voice: [v0, v1], closed: !(await js(() => window.__wdd.mix().open)), muteUnchanged: muted0 === (await js(() => window.__wdd.voice().muted)) });
+    await mark('volumes: Settings › Volume, voice slid, Done', { voice: [v0, v1], closed: !(await js(() => window.__wdd.mix().open)), muteUnchanged: muted0 === (await js(() => window.__wdd.voice().muted)) });
     await js((v) => window.__wdd.mix({ voice: v }), v0);
   } else if (part === 5) {
     await openMenuAndPick('sleep');

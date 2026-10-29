@@ -322,10 +322,11 @@ export function parsePlaceCommand(normalized: string): PlaceCommand | null {
   if (/^(places|environments?|change (the )?(place|scene|environment)|where can (i|we) go|show (me )?(the )?places)$/u.test(n)) {
     return { type: 'places' };
   }
-  if (/^(full immersion|fully immersive|more immersive|all the way|surround me|hide my room)$/u.test(n)) {
+  // 29 Oct: the bottom row's capsule says « Mixed | Full »: its two words are commands too.
+  if (/^(full|full mode|full immersion|fully immersive|more immersive|all the way|surround me|hide my room)$/u.test(n)) {
     return { type: 'immersion', level: 'full' };
   }
-  if (/^(partial immersion|less immersive|keep my table|show my table|i want to see my table)$/u.test(n)) {
+  if (/^(mixed|mixed mode|mixed reality|partial immersion|less immersive|keep my table|show my table|i want to see my table)$/u.test(n)) {
     return { type: 'immersion', level: 'table' };
   }
   if (/^((lets )?(sit|go|stay) by the fire|by the fire|light a fire|campfire)$/u.test(n)) {

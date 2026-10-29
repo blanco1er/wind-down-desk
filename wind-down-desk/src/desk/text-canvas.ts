@@ -562,7 +562,7 @@ export function drawWordChip(label: string, dim: boolean, accent: boolean, wide 
  * "Places" ornament next to the lamp: a small glass capsule with a horizon
  * glyph (a crescent over a line), sentence-case label. 4.4 cm tall target.
  */
-export function drawOrnament(label: string, open: boolean, glyph: 'horizon' | 'voice' | 'muted' | 'rituals' | 'finish' = 'horizon'): CanvasTexture {
+export function drawOrnament(label: string, open: boolean, glyph: 'horizon' | 'voice' | 'muted' | 'rituals' | 'finish' | 'settings' = 'horizon'): CanvasTexture {
   const canvas = document.createElement('canvas');
   let ctx = sized(canvas, 512, 256);
   glass(ctx, 10, 10, 492, 236, 118);
@@ -593,6 +593,23 @@ export function drawOrnament(label: string, open: boolean, glyph: 'horizon' | 'v
     ctx.lineTo(118, 152);
     ctx.lineTo(146, 118);
     ctx.stroke();
+  } else if (glyph === 'settings') {
+    // 29 Oct: Settings — a gear of eight rounded teeth around an open hub.
+    const cx = 123;
+    const cy = 134;
+    ctx.beginPath();
+    for (let i = 0; i < 16; i++) {
+      const a0 = (i / 16) * Math.PI * 2;
+      const r = i % 2 === 0 ? 44 : 33;
+      ctx.arc(cx, cy, r, a0, a0 + Math.PI / 8);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
   } else if (glyph === 'horizon') {
     // A horizon line with a rising crescent.
     ctx.beginPath();
@@ -655,10 +672,202 @@ export function drawOrnament(label: string, open: boolean, glyph: 'horizon' | 'v
     main.restore();
     ctx = main;
   }
-  ctx.font = `600 76px ${FONT}`;
+  // 29 Oct: the label shrinks to its room ("Settings" is wider than "Places"): never squeezed, never past the glass.
+  let size = 76;
+  ctx.font = `600 ${size}px ${FONT}`;
+  while (size > 56 && ctx.measureText(label).width > 270) {
+    size -= 2;
+    ctx.font = `600 ${size}px ${FONT}`;
+  }
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, 196, 134);
+  return uiTexture(canvas);
+}
+
+/**
+ * 29 Oct (owner: "it must be obvious it switches from one mode to the other"): the immersion capsule at the end of
+ * the bottom row, two segments side by side — « ◠ Mixed | ● Full » — 0.132 × 0.044 m (canvas 768 × 256). The active
+ * mode is filled in lamp colour, the other is clear glass; each has its own glyph (an arch onto your room, a full
+ * disc) and its word. `pulse` (0..1) brightens the edge for the one-time hint.
+ */
+export function drawImmersionOrnament(full: boolean, pulse = 0): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  const ctx = sized(canvas, 768, 256);
+  glass(ctx, 10, 10, 748, 236, 118);
+  if (pulse > 0) {
+    roundRect(ctx, 12, 12, 744, 232, 116);
+    ctx.strokeStyle = `rgba(255, 222, 170, ${0.35 + 0.5 * pulse})`;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+  }
+  // The active half, filled (an inner capsule with a 14 px margin).
+  roundRect(ctx, full ? 384 : 24, 24, 360, 208, 104);
+  ctx.fillStyle = DS.accent.lamp;
+  ctx.fill();
+  const seg = (x0: number, label: string, active: boolean, glyph: 'arch' | 'disc') => {
+    const ink = active ? 'rgba(36, 26, 16, 0.94)' : DS.text.primary;
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const cx = x0 + 86;
+    const cy = 128;
+    if (glyph === 'arch') {
+      ctx.beginPath();
+      ctx.moveTo(cx - 24, cy + 30);
+      ctx.lineTo(cx - 24, cy - 2);
+      ctx.arc(cx, cy - 2, 24, Math.PI, 0);
+      ctx.lineTo(cx + 24, cy + 30);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - 38, cy + 32);
+      ctx.lineTo(cx + 38, cy + 32);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 32, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.font = `600 64px ${FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x0 + 138, 134, 200);
+  };
+  seg(24, 'Mixed', !full, 'arch');
+  seg(384, 'Full', full, 'disc');
+  return uiTexture(canvas);
+}
+
+/** 29 Oct: one row of the Settings panel (the ritual rows' glass): glyph, name, and its state on the right. */
+export type SettingId = 'volume' | 'voice' | 'text' | 'contrast' | 'gaze' | 'recenter' | 'forget' | 'close';
+export function drawSettingChip(id: SettingId, name: string, state: string | null, on: boolean): CanvasTexture {
+  const { canvas, ctx } = chipCanvas();
+  glass(ctx, 10, 10, 748, 204, 102);
+  if (on) {
+    roundRect(ctx, 10, 10, 748, 204, 102);
+    ctx.fillStyle = 'rgba(244, 194, 126, 0.2)';
+    ctx.fill();
+  }
+  const cx = 112;
+  const cy = 112;
+  const g = ctx.createRadialGradient(cx - 18, cy - 22, 6, cx, cy, 66);
+  g.addColorStop(0, 'rgba(92, 70, 52, 0.95)');
+  g.addColorStop(1, 'rgba(40, 30, 24, 0.95)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, 66, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 252, 246, 0.42)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 236, 206, 0.95)';
+  ctx.strokeStyle = 'rgba(255, 236, 206, 0.95)';
+  ctx.lineWidth = 7;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (id === 'volume') {
+    // Two level rails with their beads.
+    for (const [y, u] of [[-14, 0.7], [16, 0.4]] as const) {
+      ctx.beginPath();
+      ctx.moveTo(cx - 34, cy + y);
+      ctx.lineTo(cx + 34, cy + y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx - 34 + 68 * u, cy + y, 9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (id === 'voice') {
+    // The lamp's voice: a small speaker and one arc.
+    ctx.beginPath();
+    ctx.moveTo(cx - 30, cy - 12);
+    ctx.lineTo(cx - 16, cy - 12);
+    ctx.lineTo(cx + 2, cy - 28);
+    ctx.lineTo(cx + 2, cy + 28);
+    ctx.lineTo(cx - 16, cy + 12);
+    ctx.lineTo(cx - 30, cy + 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 6, cy, 24, -0.8, 0.8);
+    ctx.stroke();
+  } else if (id === 'text') {
+    ctx.font = `700 52px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Aa', cx, cy + 3);
+  } else if (id === 'contrast') {
+    ctx.beginPath();
+    ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 30, -Math.PI / 2, Math.PI / 2);
+    ctx.fill();
+  } else if (id === 'gaze') {
+    // An eye.
+    ctx.beginPath();
+    ctx.moveTo(cx - 38, cy);
+    ctx.quadraticCurveTo(cx, cy - 34, cx + 38, cy);
+    ctx.quadraticCurveTo(cx, cy + 34, cx - 38, cy);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 11, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (id === 'recenter') {
+    // A target: ring, centre, four short ticks.
+    ctx.beginPath();
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fill();
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * 30, cy + dy * 30);
+      ctx.lineTo(cx + dx * 40, cy + dy * 40);
+      ctx.stroke();
+    }
+  } else if (id === 'forget') {
+    // A small trash bin.
+    ctx.beginPath();
+    ctx.moveTo(cx - 26, cy - 20);
+    ctx.lineTo(cx + 26, cy - 20);
+    ctx.moveTo(cx - 8, cy - 28);
+    ctx.lineTo(cx + 8, cy - 28);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 20, cy - 12);
+    ctx.lineTo(cx - 16, cy + 30);
+    ctx.lineTo(cx + 16, cy + 30);
+    ctx.lineTo(cx + 20, cy - 12);
+    ctx.stroke();
+  } else {
+    // Close: a soft ×.
+    ctx.beginPath();
+    ctx.moveTo(cx - 20, cy - 20);
+    ctx.lineTo(cx + 20, cy + 20);
+    ctx.moveTo(cx + 20, cy - 20);
+    ctx.lineTo(cx - 20, cy + 20);
+    ctx.stroke();
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const stateW = state == null ? 0 : 150;
+  let size = 60;
+  ctx.font = `600 ${size}px ${FONT}`;
+  while (size > 42 && ctx.measureText(name).width > 520 - stateW) {
+    size -= 2;
+    ctx.font = `600 ${size}px ${FONT}`;
+  }
+  ctx.fillStyle = DS.text.primary;
+  ctx.fillText(name, 206, 112);
+  if (state != null) {
+    ctx.font = `600 40px ${FONT}`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = on ? DS.accent.lamp : DS.text.secondary;
+    ctx.fillText(state, 724, 112);
+  }
   return uiTexture(canvas);
 }
 
@@ -732,9 +941,16 @@ export function drawGlobeLabel(name: string, index: number, count: number, curre
       ctx.stroke();
     }
   }
-  ctx.font = `500 34px ${FONT}`;
+  // 29 Oct (owner: the line under the name was too small): 48 px on a 26 cm label ≈ the caption's own small line
+  // (≈ 16 mm); a longer hint steps down, never squeezed.
+  let hintSize = 48;
+  ctx.font = `500 ${hintSize}px ${FONT}`;
+  while (hintSize > 38 && ctx.measureText(hint).width > 700) {
+    hintSize -= 2;
+    ctx.font = `500 ${hintSize}px ${FONT}`;
+  }
   ctx.fillStyle = DS.text.secondary;
-  ctx.fillText(hint, 384, 180, 700);
+  ctx.fillText(hint, 384, 184, 720);
   return uiTexture(canvas);
 }
 
@@ -789,47 +1005,6 @@ export function drawPlaceChip(name: string, thumb: HTMLImageElement | null, curr
     ctx.fillStyle = DS.accent.lamp;
     ctx.fill();
   }
-  return uiTexture(canvas);
-}
-
-/**
- * v8: the immersion switch of a place, a two-segment glass capsule ("Table stays" | "Full"), like the
- * reference images. One mesh, one action: a touch anywhere flips it (the active half is the lit pill).
- */
-export function drawImmersionToggle(full: boolean): CanvasTexture {
-  const { canvas, ctx } = chipCanvas();
-  glass(ctx, 10, 34, 748, 156, 78);
-  const half = (748 - 24) / 2;
-  const x0 = 22 + (full ? half : 0);
-  roundRect(ctx, x0, 46, half, 132, 66);
-  ctx.fillStyle = 'rgba(255, 248, 238, 0.24)';
-  ctx.fill();
-  roundRect(ctx, x0 + 1.5, 47.5, half - 3, 129, 64.5);
-  ctx.strokeStyle = 'rgba(255, 244, 228, 0.42)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.font = `650 56px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const labels = ['Table stays', 'Full'];
-  labels.forEach((label, i) => {
-    const on = (i === 1) === full;
-    const cx = 22 + half * i + half / 2;
-    ctx.fillStyle = on ? DS.text.primary : 'rgba(255, 250, 242, 0.78)';
-    ctx.fillText(label, cx + 14, 114, half - 70);
-    // A small radio dot before the label, lamp-coloured when on.
-    const w = Math.min(ctx.measureText(label).width, half - 70);
-    ctx.beginPath();
-    ctx.arc(cx + 14 - w / 2 - 30, 113, 11, 0, Math.PI * 2);
-    if (on) {
-      ctx.fillStyle = DS.accent.lamp;
-      ctx.fill();
-    } else {
-      ctx.strokeStyle = 'rgba(255, 250, 242, 0.55)';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
-  });
   return uiTexture(canvas);
 }
 

@@ -49,7 +49,7 @@ import { LightField } from './particles.ts';
 import { LampSpirit } from './lamp-spirit.ts';
 import { CeilingSky } from './ceiling-sky.ts';
 import { DS, Spring } from './design-tokens.ts';
-import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawGlobeButton, drawGlobeLabel, drawWordChip, drawImmersionToggle, WIDE_CHIP, drawOrnament, drawPlaceChip, drawRitualChip, type CardContent } from './text-canvas.ts';
+import { CaptionCanvas, CardCanvas, drawButton, drawEngravedLabels, drawGlobeButton, drawGlobeLabel, drawWordChip, drawImmersionOrnament, drawSettingChip, WIDE_CHIP, drawOrnament, drawPlaceChip, drawRitualChip, type CardContent, type SettingId } from './text-canvas.ts';
 import { PlacePreviews } from './place-preview.ts';
 import { WordBatch } from './word-batch.ts';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -69,21 +69,32 @@ import { skyGlobeLayout } from '../logic/caption-layout.ts';
  */
 export const PLACES_IN_GLOBE = true;
 /** Desk-local spot of the grown globe (above and behind the Later / Let go bowls, clear of them from the seat). */
-export const GLOBE_SHOW = { x: 0.1, y: 0.22, z: -0.08, radius: 0.085, tilt: -0.45, button: 0.05, gap: 0.028, label: 0.17 } as const;
-/** 29 Oct: over the open globe, the "Table stays | Full" switch (5.8 cm tall) right above the glass, the place's
- * name with ✕ and "Recenter desk" one row higher (heights from the sphere's top, desk-local metres). */
-const GLOBE_ROW = { toggle: 0.042, title: 0.108 } as const;
+export const GLOBE_SHOW = { x: 0.1, y: 0.22, z: -0.08, radius: 0.085, tilt: -0.45, button: 0.05, gap: 0.028, label: 0.24 } as const;
 /**
- * 29 Oct (owner, emulated preview on a computer: "no difference between mixed and Full"): there is no camera and
- * no room in the preview, so "Table stays" has nothing to keep. The switch exists only where passthrough does.
+ * 29 Oct: the globe's name row stands this high above the sphere's top (desk-local metres; the 24 cm label is
+ * 7 cm tall). The "Table stays | Full" switch left the globe for the bottom row (one control, owner).
  */
-// Read from the URL: this module is evaluated before the emulator adds its class to the page (as TEXT_SCALE does).
-const IMMERSION_SWITCH =
-  typeof window === 'undefined' || !(new URLSearchParams(window.location.search).get('preview') === '1' && !/OculusBrowser|Quest/i.test(navigator.userAgent));
-/** Height of the globe's title row above the sphere: one row higher when the switch sits under it. */
+const GLOBE_TITLE_DY = 0.05;
 function globeTitleDy(): number {
-  return IMMERSION_SWITCH ? GLOBE_ROW.title : GLOBE_ROW.toggle - 0.004;
+  return GLOBE_TITLE_DY;
 }
+/**
+ * 29 Oct (owner): the bottom row is Rituals · Places · Settings, plus « Mixed | Full » at its end while you are in a
+ * place. Widths (m) and the gap; the row stays centred on the tray whether the capsule shows or not.
+ */
+const BOTTOM_ROW = { button: 0.088, capsule: 0.132, gap: 0.012 } as const;
+/** The Settings rows, in the ritual menu's two columns of four. */
+const SETTING_ROWS: ReadonlyArray<{ id: SettingId; name: string }> = [
+  { id: 'volume', name: 'Volume' },
+  { id: 'voice', name: 'Lamp voice' },
+  { id: 'text', name: 'Larger text' },
+  { id: 'contrast', name: 'High contrast' },
+  { id: 'gaze', name: 'Choose by looking' },
+  { id: 'recenter', name: 'Recenter desk' },
+  { id: 'forget', name: 'Forget my evenings' },
+  { id: 'close', name: 'Close' },
+];
+export type SettingStates = { voice: boolean; text: boolean; contrast: boolean; gaze: boolean };
 
 function approach(current: number, target: number, rate: number, dt: number): number {
   return current + (target - current) * (1 - Math.exp(-rate * dt));
@@ -141,7 +152,8 @@ const CAPTION_OVER_WORDS = 0.135;
  * ≥ 3° under the frame's top edge (it stood above eye level), the right column ≤ 34° from the centre (it reached 52°).
  * The rows stand right of the caption (which steps aside to the left), above the Let go bowl and the lamp.
  */
-const RITUAL_ROWS = { farY: 0.322, farStep: 0.056, nearY: 0.3, nearStep: 0.05, scale: 0.9 } as const;
+// 29 Oct: 3 cm higher (owner's screen: the last row, Release / High contrast, sat behind the Let go bowl's rim).
+const RITUAL_ROWS = { farY: 0.352, farStep: 0.056, nearY: 0.328, nearStep: 0.05, scale: 0.9 } as const;
 /**
  * 28 Oct: eight rows (Squeeze, Keep and Your sky joined) stand in two columns of four, so the last row stays high
  * enough (the Let go bowl's rim never covers it) and the caption stays clear: the rituals in the first column, Keep …
@@ -184,14 +196,14 @@ export class DeskVisuals {
   readonly living: LivingPlaces;
   readonly ornament: Mesh;
   readonly ornamentEntity: Entity;
-  /** "Voice" / "Muted" toggle of the lamp's spoken lines, under the Places ornament. */
+  /** 29 Oct: "Settings" (it was "Sound"); the mesh and entity keep their old names. */
   readonly voiceButton: Mesh;
   readonly voiceEntity: Entity;
   private readonly voiceUniforms: CardUniforms;
   /** Loudness of the lamp's voice right now (0..1), −1 when it is not speaking: drives the glow. */
   voiceLevel = -1;
   readonly placeChips: Array<{ id: PlaceId; mesh: Mesh; entity: Entity; uniforms: CardUniforms; hover: Spring }> = [];
-  /** v8: "Table stays | Full" switch, shown in a place (under the caption, or under the open Places grid). */
+  /** 29 Oct: « Mixed | Full », the capsule at the end of the bottom row while you are in a place. */
   readonly immersionToggle: Mesh;
   readonly immersionEntity: Entity;
   private readonly immersionUniforms: CardUniforms;
@@ -200,9 +212,16 @@ export class DeskVisuals {
   readonly moveEntity: Entity;
   private readonly moveUniforms: CardUniforms;
   private immersionFull = false;
-  /** 0..1: the switch fading out while Breathe's replies stand where it is. */
-  private toggleHideK = 0;
-  private readonly toggleSpring = new Spring(0);
+  /** 0..1: the capsule's place in the bottom row (it slides in when you arrive in a place). */
+  private immersionRowK = 0;
+  /** The one-time hint: the capsule's edge pulses twice (seconds left, 0: none). */
+  private immersionPulseT = 0;
+  private immersionPulseDrawn = -1;
+  /** 29 Oct: the Settings panel (rows in the ritual menu's place; one menu at a time). */
+  readonly settingChips: Array<{ id: SettingId; mesh: Mesh; entity: Entity; uniforms: CardUniforms; hover: Spring }> = [];
+  private readonly settingSpring = new Spring(0);
+  private settingsOpen = false;
+  private settingsModalK = 0;
   private readonly asideSpring = new Spring(0);
   private readonly paneTmp = new Vector3();
   /** v6: "Rituals" ornament (reads "Finish" during Breathe and Release) and its menu rows by the lamp. */
@@ -532,7 +551,7 @@ export class DeskVisuals {
     this.ornament.renderOrder = 7;
     this.root.add(this.ornament);
     this.ornamentEntity = world.createTransformEntity(this.ornament, this.rootEntity);
-    const voiceMaterial = createCardMaterial(drawOrnament('Sound', false, 'voice'));
+    const voiceMaterial = createCardMaterial(drawOrnament('Settings', false, 'settings'));
     this.voiceUniforms = voiceMaterial.uniforms;
     this.voiceButton = new Mesh(createQuad(0.088, 0.044), voiceMaterial);
     this.voiceButton.position.set(ORNAMENT_ROW.x[2], ORNAMENT_ROW.y, ORNAMENT_ROW.z(layout));
@@ -555,12 +574,13 @@ export class DeskVisuals {
       this.placeChips.push({ id, mesh, entity, uniforms: material.uniforms, hover });
       this.hover[`place:${id}`] = hover;
     });
-    // v8: immersion switch (one mesh, a touch flips it).
-    const toggleMaterial = createCardMaterial(drawImmersionToggle(false));
+    // 29 Oct: « Mixed | Full » at the end of the bottom row (one mesh; a touch anywhere on it flips the mode).
+    const toggleMaterial = createCardMaterial(drawImmersionOrnament(false));
     this.immersionUniforms = toggleMaterial.uniforms;
-    this.immersionToggle = new Mesh(createQuad(0.25, 0.0729), toggleMaterial);
-    this.immersionToggle.rotation.x = PANE.tilt;
-    this.immersionToggle.renderOrder = 8;
+    this.immersionToggle = new Mesh(createQuad(BOTTOM_ROW.capsule, 0.044), toggleMaterial);
+    this.immersionToggle.position.set(0, ORNAMENT_ROW.y, ORNAMENT_ROW.z(layout));
+    this.immersionToggle.rotation.x = ORNAMENT_ROW.tilt;
+    this.immersionToggle.renderOrder = 7;
     this.immersionToggle.visible = false;
     this.root.add(this.immersionToggle);
     this.immersionEntity = world.createTransformEntity(this.immersionToggle, this.rootEntity);
@@ -617,6 +637,47 @@ export class DeskVisuals {
       this.ritualChips.push({ id: row.id, mesh, entity, uniforms: material.uniforms, hover });
       this.hover[`ritual:${row.id}`] = hover;
     });
+    // 29 Oct: the Settings rows stand where the ritual rows do (they never show together).
+    SETTING_ROWS.forEach((row) => {
+      const material = createCardMaterial(drawSettingChip(row.id, row.name, null, false));
+      const mesh = new Mesh(createQuad(0.19, 0.0553), material);
+      mesh.renderOrder = 8;
+      mesh.visible = false;
+      this.root.add(mesh);
+      const entity = world.createTransformEntity(mesh, this.rootEntity);
+      const hover = new Spring(0);
+      this.settingChips.push({ id: row.id, mesh, entity, uniforms: material.uniforms, hover });
+      this.hover[`setting:${row.id}`] = hover;
+    });
+  }
+
+  get settingsShown(): boolean {
+    return this.settingsOpen;
+  }
+
+  /** 29 Oct: opens / closes the Settings panel (closes the ritual menu and Places); `states` draws the switches. */
+  openSettings(open: boolean, states?: SettingStates): void {
+    this.settingsOpen = open;
+    if (open) {
+      if (this.ritualsOpen) this.openRituals(false);
+      if (this.menuOpen) this.openPlaces(false);
+      if (states != null) this.refreshSettings(states);
+    }
+  }
+
+  /** Redraws the Settings rows' states (On / Off). */
+  refreshSettings(states: SettingStates): void {
+    for (const chip of this.settingChips) {
+      const row = SETTING_ROWS.find((r) => r.id === chip.id)!;
+      const on = chip.id === 'voice' ? states.voice : chip.id === 'text' ? states.text : chip.id === 'contrast' ? states.contrast : chip.id === 'gaze' ? states.gaze : null;
+      chip.uniforms.uMap.value.dispose();
+      chip.uniforms.uMap.value = drawSettingChip(chip.id, row.name, on == null ? null : on ? 'On' : 'Off', on === true);
+    }
+  }
+
+  /** The one-time hint of the capsule: its edge pulses twice (≈ 2.4 s). */
+  pulseImmersion(): void {
+    this.immersionPulseT = 2.4;
   }
 
   /** 28 Oct: triangles of the Tripo lamp foot and GPU bytes of its textures (perf report). */
@@ -688,6 +749,7 @@ export class DeskVisuals {
     this.ritualsOpen = open;
     if (open) {
       if (this.menuOpen) this.openPlaces(false);
+      if (this.settingsOpen) this.settingsOpen = false;
       RITUAL_MENU.forEach((row, i) => {
         const chip = this.ritualChips[i];
         chip.uniforms.uMap.value.dispose();
@@ -745,9 +807,8 @@ export class DeskVisuals {
   // ------------------------------------------------------------------ places
 
   /** Redraws the voice toggle ("Voice" with sound arcs, or "Muted"). */
-  setVoiceMuted(muted: boolean): void {
-    this.voiceUniforms.uMap.value.dispose();
-    this.voiceUniforms.uMap.value = drawOrnament(muted ? 'Muted' : 'Sound', false, muted ? 'muted' : 'voice');
+  setVoiceMuted(_muted: boolean): void {
+    // 29 Oct: the bottom row's third button is Settings; the voice's state is its "Lamp voice" row (refreshSettings).
   }
 
   get placesOpen(): boolean {
@@ -758,6 +819,7 @@ export class DeskVisuals {
   openPlaces(open: boolean): void {
     this.menuOpen = open;
     if (open && this.ritualsOpen) this.openRituals(false);
+    if (open && this.settingsOpen) this.settingsOpen = false;
     this.ornamentUniforms.uMap.value.dispose();
     this.ornamentUniforms.uMap.value = drawOrnament('Places', open);
     if (PLACES_IN_GLOBE) {
@@ -966,14 +1028,8 @@ export class DeskVisuals {
       this.globeLabelUniforms.uOpacity.value = k;
       this.globeLabel.rotation.x = GLOBE_SHOW.tilt;
       this.globeLabel.position.set(cx, cy + r + globeTitleDy(), cz - 0.004);
-      // "Move desk here" stays one touch away, left of the title (the × is on its right).
-      const hover = this.hover['move-desk'].step(dt);
-      this.moveChip.visible = true;
-      this.moveUniforms.uOpacity.value = k * (1 - this.dim * 0.4);
-      this.moveUniforms.uHighlight.value = hover;
-      this.moveChip.rotation.x = GLOBE_SHOW.tilt;
-      this.moveChip.scale.setScalar((0.9 + 0.1 * k) * (1 + 0.04 * hover) * 0.8);
-      this.moveChip.position.set(cx - GLOBE_SHOW.label / 2 - GLOBE_SHOW.gap - MOVE_CHIP.w * 0.4, cy + r + globeTitleDy(), cz - 0.004);
+      // 29 Oct: "Recenter desk" moved to Settings; the globe keeps its name, ‹ › and ×.
+      this.moveChip.visible = false;
     } else if (!this.menuOpen) {
       this.moveChip.visible = false;
     }
@@ -992,7 +1048,8 @@ export class DeskVisuals {
     if (full === this.immersionFull) return;
     this.immersionFull = full;
     this.immersionUniforms.uMap.value.dispose();
-    this.immersionUniforms.uMap.value = drawImmersionToggle(full);
+    this.immersionUniforms.uMap.value = drawImmersionOrnament(full);
+    this.immersionPulseDrawn = -1;
   }
 
   /** Crossfades to a place; the desk light follows. Resolves false if the photo could not load. */
@@ -1250,7 +1307,7 @@ export class DeskVisuals {
   }
 
   get repliesShown(): boolean {
-    return this.replyLabels != null && this.cardTarget === 0;
+    return this.replyLabels != null && this.cardTarget === 0 && !this.settingsOpen;
   }
 
   /** The quiet evening's touch words (null closes the grid and frees its textures). */
@@ -1482,20 +1539,15 @@ export class DeskVisuals {
     cap.value *= 1 - Math.min(1, menuK * 2.5);
     // 26 Oct (stability pass, draw budget): a caption faded out is not drawn at all (it cost a draw per eye).
     this.caption.visible = cap.value > 0.004;
-    this.asideSpring.target = this.ritualsOpen ? 1 : 0;
+    this.asideSpring.target = this.ritualsOpen || this.settingsOpen ? 1 : 0;
     const aside = this.asideSpring.step(dt, 150, 24);
     this.caption.scale.setScalar(this.textK * (1 - (1 - CAPTION_ASIDE_SCALE) * Math.max(0, Math.min(1, aside))));
-    const inPlace = PLACES[this.backdrop.place].photo != null;
-    // 29 Oct (owner: "too much on screen"): the "Table stays | Full" switch belongs to choosing a place — it shows
-    // only while Places (the grid or the lamp's globe) is open, never under every caption of the evening.
-    this.toggleSpring.target = inPlace && (this.placesOpen || this.globeK > 0.02) ? 1 : 0;
-    const tk = Math.max(0, Math.min(1, this.toggleSpring.step(dt, 150, 24)));
     // v8: in Breathe the moon grows: the caption rises with it, so the moon never covers its lower line.
     const moonLift = Math.max(0, this.orbPose.scale - 1.5) * 0.014;
-    this.wordSpring.target = this.wordsOpen && !this.ritualsOpen ? 1 : 0;
+    this.wordSpring.target = this.wordsOpen && !this.ritualsOpen && !this.settingsOpen ? 1 : 0;
     const wk = Math.max(0, Math.min(1, this.wordSpring.step(dt, 160, 24)));
     // Touch menus come to you (airplane-seat test): a slow, calm glide (≈ 0.5 s).
-    this.nearK = approach(this.nearK, this.menuOpen || this.wordsOpen || this.ritualsOpen ? 1 : 0, 5, dt);
+    this.nearK = approach(this.nearK, this.menuOpen || this.wordsOpen || this.ritualsOpen || this.settingsOpen ? 1 : 0, 5, dt);
     const nk = this.nearK * this.nearK * (3 - 2 * this.nearK);
     // A lower head sees the near words higher against the far caption (parallax): the caption rises a little more.
     let over = CAPTION_OVER_WORDS;
@@ -1505,7 +1557,7 @@ export class DeskVisuals {
       over += Math.min(0.05, Math.max(0, (0.48 - this.eyeLocal.y) * 0.55));
       this.nearWordsNow.y = Math.max(0.12, Math.min(NEAR_WORDS.y, this.eyeLocal.y + 0.02));
     }
-    this.captionDy = lift * 0.05 + tk * 0.03 + moonLift + wk * WORDS.lift * (1 - nk) + wk * nk * over;
+    this.captionDy = lift * 0.05 + moonLift + wk * WORDS.lift * (1 - nk) + wk * nk * over;
     // 29 Oct (coordinator review): while the lamp shows your sky, the globe stands right of the caption's pill, as far
     // as the pill's real width needs (seen from the seat); a very long sentence also slides the caption left.
     let skyShift = 0;
@@ -1530,30 +1582,6 @@ export class DeskVisuals {
       // A word that stepped aside (ritual menu open) cannot be touched either.
       chip.mesh.visible = chip.label != null && wk > 0.02;
     });
-    // The switch: under the caption, or under the Places grid when it is open.
-    // (29 Oct: with the lamp's globe open — a 17 cm sphere — the switch sits 1.2 cm lower, clear of the glass.)
-    const toggleDy = menuK > 0.5 ? GRID.dy[GRID.dy.length - 1] - 0.066 - (PLACES_IN_GLOBE ? 0.012 : 0) : -0.128 + tk * 0.03 + lift * 0.05;
-    this.immersionToggle.rotation.x = onNearPane(this.layout, menuK > 0.5 ? 0 : aside * CAPTION_ASIDE, toggleDy, menuK > 0.5 ? nk : 0, this.paneTmp);
-    this.immersionToggle.position.copy(this.paneTmp);
-    // 29 Oct (owner: "the switch crosses the globe and the bowls"): with the lamp's globe open the switch stands
-    // just above the glass, under the place's name (GLOBE_ROW) — never through the sphere nor over a bowl.
-    const inGlobe = this.globeK > 0.02;
-    if (inGlobe) {
-      const r = LAMP.globe * this.orbPose.scale;
-      this.immersionToggle.rotation.x = GLOBE_SHOW.tilt;
-      this.immersionToggle.position.set(this.orbPose.x, this.orbPose.y + r + GLOBE_ROW.toggle, this.orbPose.z - 0.004);
-    }
-    const toggleHover = this.hover.immersion.step(dt);
-    // While the lamp waits for an answer (Yes / Not now, Longer / Enough, the words to touch), the switch fades out:
-    // one question at a time, and nothing ever stacks on it (owner, 19 Oct: twice "it is almost glued to Yes").
-    // 29 Oct (hands only): with the lamp's globe open the replies step aside, so the switch comes back — otherwise
-    // "Full" was reachable by voice alone (a proposal is almost always waiting in a place).
-    const asking = !this.placesOpen && ((this.cardTarget === 0 && this.replyLabels != null) || this.wordsOpen);
-    this.toggleHideK = approach(this.toggleHideK, asking ? 1 : 0, 6, dt);
-    this.immersionUniforms.uOpacity.value = tk * (menuK > 0.5 ? menuK : Math.max(cap.value, 0.55)) * (1 - this.dim * 0.4) * (1 - this.toggleHideK);
-    this.immersionUniforms.uHighlight.value = toggleHover;
-    this.immersionToggle.scale.setScalar((inGlobe ? 0.8 : 1) * (1 + 0.04 * toggleHover));
-    this.immersionToggle.visible = IMMERSION_SWITCH && tk > 0.02 && this.cardTarget === 0 && this.toggleHideK < 0.98;
     // Card: spring in (scale 0.94 → 1 with opacity), calm fade out.
     this.cardSpring.target = this.cardTarget;
     const k = Math.max(0, Math.min(1.05, this.cardSpring.step(dt, 180, 24)));
@@ -1601,13 +1629,41 @@ export class DeskVisuals {
     this.nightRowK = approach(this.nightRowK, this.ornamentsNight ? 1 : 0, 2.5, dt);
     const nightRow = 1 - this.nightRowK;
     const modal = 1 - this.ritualModalK;
-    this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal * nightRow;
+    // 29 Oct: the Settings panel is modal like the ritual menu: Rituals and Places step away while it is open.
+    this.settingsModalK = approach(this.settingsModalK, this.settingsOpen ? 1 : 0, 6, dt);
+    const setModal = 1 - this.settingsModalK;
+    this.ornamentUniforms.uOpacity.value = ornamentOpacity * Math.max(0, 1 - menu * 1.6) * modal * nightRow * setModal;
     // The opening shot (2D page) is a still life: tray, bowls, lamp; the glass row appears with the evening.
-    this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6) && this.ritualModalK < 0.95 && this.nightRowK < 0.98;
+    this.ornament.visible = !this.ornamentsHidden && !(this.menuOpen && menu > 0.6) && this.ritualModalK < 0.95 && this.nightRowK < 0.98 && this.settingsModalK < 0.95;
+    // 29 Oct (owner): « Mixed | Full » joins the row's end while you are in a place; the row stays centred.
+    const inPlace = PLACES[this.backdrop.place].photo != null;
+    this.immersionRowK = approach(this.immersionRowK, inPlace && !this.ornamentsHidden && !this.ornamentsNight ? 1 : 0, 6, dt);
+    const ik = this.immersionRowK;
+    const rowW = 3 * BOTTOM_ROW.button + 2 * BOTTOM_ROW.gap + ik * (BOTTOM_ROW.gap + BOTTOM_ROW.capsule);
+    const x0 = -rowW / 2 + BOTTOM_ROW.button / 2;
+    const rz = ORNAMENT_ROW.z(this.layout);
+    this.ritualsOrnament.position.set(x0, ORNAMENT_ROW.y, rz);
+    this.ornament.position.set(x0 + BOTTOM_ROW.button + BOTTOM_ROW.gap, ORNAMENT_ROW.y, rz);
+    this.voiceButton.position.set(x0 + 2 * (BOTTOM_ROW.button + BOTTOM_ROW.gap), ORNAMENT_ROW.y, rz);
+    this.immersionToggle.position.set(rowW / 2 - BOTTOM_ROW.capsule / 2, ORNAMENT_ROW.y, rz);
+    if (this.immersionPulseT > 0) this.immersionPulseT = Math.max(0, this.immersionPulseT - dt);
+    // Two soft pulses (sin² over 2 × 1.2 s), redrawn in 6 steps only (a canvas upload per step, not per frame).
+    const pulse = this.immersionPulseT > 0 ? Math.sin(((2.4 - this.immersionPulseT) / 1.2) * Math.PI) ** 2 : 0;
+    const pulseStep = Math.round(pulse * 5);
+    if (pulseStep !== this.immersionPulseDrawn) {
+      this.immersionPulseDrawn = pulseStep;
+      this.immersionUniforms.uMap.value.dispose();
+      this.immersionUniforms.uMap.value = drawImmersionOrnament(this.immersionFull, pulseStep / 5);
+    }
+    const immHover = this.hover.immersion.step(dt);
+    this.immersionUniforms.uOpacity.value = ornamentOpacity * ik * nightRow;
+    this.immersionUniforms.uHighlight.value = Math.max(immHover, pulse * 0.6);
+    this.immersionToggle.scale.setScalar((0.9 + 0.1 * ik) * (1 + 0.05 * immHover + 0.04 * pulse));
+    this.immersionToggle.visible = ik > 0.02 && this.nightRowK < 0.98 && !this.ornamentsHidden;
     // 26 Oct (stability pass, draw budget): the lamp showing the places is modal too — Rituals and Sound step away
     // (× and the voice close it), two draws per eye saved: 23 per eye with the globe open.
     const globeModal = 1 - this.globeK;
-    this.ritualsOrnament.visible = !this.ornamentsHidden && this.globeK < 0.95 && this.nightRowK < 0.98;
+    this.ritualsOrnament.visible = !this.ornamentsHidden && this.globeK < 0.95 && this.nightRowK < 0.98 && this.settingsModalK < 0.95;
     this.voiceButton.visible = !this.ornamentsHidden && this.ritualModalK < 0.95 && this.globeK < 0.95 && this.nightRowK < 0.98;
     this.ornamentUniforms.uHighlight.value = placesHover;
     this.ornament.scale.setScalar((1 + 0.06 * placesHover) * (1 - 0.12 * Math.min(1, menu)));
@@ -1623,7 +1679,8 @@ export class DeskVisuals {
     if (this.cardTarget === 0) {
       const two = this.replyLabels != null && this.replyLabels.length > 1;
       // While the lamp shows the places, its question waits (one thing at a time; the globe stands there).
-      const free = Math.max(this.globeK, this.skyK) < 0.5;
+      // 29 Oct: Settings open, the question waits too (one thing at a time).
+      const free = Math.max(this.globeK, this.skyK, this.settingsModalK) < 0.5;
       this.keepChip.visible = rk > 0.01 && free;
       this.lighterChip.visible = rk > 0.01 && two && free;
     }
@@ -1768,8 +1825,36 @@ export class DeskVisuals {
       if ((!this.ritualsOpen || this.skyK > 0.3) && rm < 0.02) chip.mesh.visible = false;
       else if (this.ritualsOpen && rm > 0.02) chip.mesh.visible = true;
     });
+    // 29 Oct: the Settings rows rise in where the ritual rows stand (same columns, same airplane-seat glide).
+    this.settingSpring.target = this.settingsOpen && this.uiK > 0.6 ? 1 : 0;
+    const sm = Math.max(0, this.settingSpring.step(dt, 200, 24));
+    if (sm > 0.001 && rm <= 0.001) {
+      this.root.updateMatrixWorld();
+      this.root.worldToLocal(this.camera.getWorldPosition(this.headLocal));
+    }
+    this.settingChips.forEach((chip, i) => {
+      if (sm > 0.001) {
+        const col = i < RITUAL_COLUMN.rows ? 0 : 1;
+        const row = i % RITUAL_COLUMN.rows;
+        const farX = RITUAL_COLUMN.farX + col * RITUAL_COLUMN.far;
+        const nearX = RITUAL_COLUMN.nearX + col * RITUAL_COLUMN.near;
+        chip.mesh.position.set(
+          farX + (nearX - farX) * rowK,
+          RITUAL_ROWS.farY - row * RITUAL_ROWS.farStep + (RITUAL_ROWS.nearY - row * RITUAL_ROWS.nearStep - (RITUAL_ROWS.farY - row * RITUAL_ROWS.farStep)) * rowK,
+          RITUAL_COLUMN.farZ + (RITUAL_COLUMN.nearZ - RITUAL_COLUMN.farZ) * rowK,
+        );
+        const p = chip.mesh.position;
+        chip.mesh.rotation.set(-0.08, Math.atan2(this.headLocal.x - p.x, this.headLocal.z - p.z), 0, 'YXZ');
+      }
+      const kk = Math.min(1, Math.max(0, sm * 1.25 - (i % RITUAL_COLUMN.rows) * 0.08 - (i < RITUAL_COLUMN.rows ? 0 : 0.04)));
+      const hover = chip.hover.step(dt);
+      chip.uniforms.uOpacity.value = kk;
+      chip.uniforms.uHighlight.value = hover;
+      chip.mesh.scale.setScalar((0.9 + 0.1 * kk) * (1 + 0.04 * hover) * RITUAL_ROWS.scale);
+      chip.mesh.visible = sm > 0.02;
+    });
     const ritualsHover = this.hover.rituals.step(dt);
-    this.ritualsUniforms.uOpacity.value = ornamentOpacity * (1 - this.globeK) * (1 - this.nightRowK);
+    this.ritualsUniforms.uOpacity.value = ornamentOpacity * (1 - this.globeK) * (1 - this.nightRowK) * (1 - this.settingsModalK);
     this.ritualsUniforms.uHighlight.value = ritualsHover;
     this.ritualsOrnament.scale.setScalar(1 + 0.06 * ritualsHover);
     this.lights.flush();
@@ -1789,6 +1874,7 @@ export class DeskVisuals {
       const card = (mesh: Mesh, u: CardUniforms) => t.push({ mesh, opacity: () => u.uOpacity.value });
       for (const c of this.placeChips) card(c.mesh, c.uniforms);
       for (const c of this.ritualChips) card(c.mesh, c.uniforms);
+      for (const c of this.settingChips) card(c.mesh, c.uniforms);
       for (const c of this.wordChips) card(c.mesh, c.uniforms);
       for (const c of this.globeButtons) card(c.mesh, c.uniforms);
       card(this.keepChip, this.chipUniforms[0]);
