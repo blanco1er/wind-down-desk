@@ -18,6 +18,7 @@ import {
   RGBAFormat,
   Texture,
   TextureLoader,
+  Matrix4,
   Vector3,
   Vector4,
   type Entity,
@@ -265,6 +266,10 @@ export class DeskVisuals {
   energy = 0;
   private readonly worldTmp = new Vector3();
   private readonly headLocal = new Vector3();
+  private readonly faceN = new Vector3();
+  private readonly faceX = new Vector3();
+  private readonly faceY = new Vector3();
+  private readonly faceM = new Matrix4();
   private readonly eyeLocal = new Vector3();
   /**
    * 29 Oct (a low seat at a high table, the desk at chin height): the words' near pane never stands higher than
@@ -1213,7 +1218,8 @@ export class DeskVisuals {
     const angle = len < 1e-6 ? 0 : (Math.acos(Math.max(-1, Math.min(1, (tx * dir.x + ty * dir.y + tz * dir.z) / len))) * 180) / Math.PI;
     const capOpacity = this.captionUniforms.uOpacity.value;
     const want = this.root.visible && angle > 42 && this.lifeT - this.captionAt < 7 && capOpacity > 0.3 ? 1 : 0;
-    this.relayK = approach(this.relayK, want, 3, dt);
+    // 10 Nov: it leaves three times faster than it comes, so no double of the text lingers over the replies.
+    this.relayK = approach(this.relayK, want, want > 0 ? 3 : 9, dt);
     this.relay.visible = this.relayK > 0.02;
     if (!this.relay.visible) {
       this.relayPlaced = false;
@@ -1394,7 +1400,11 @@ export class DeskVisuals {
     this.captionLift.target = 0;
   }
 
+  /** The card's chip labels as last set (read by the end-to-end run, which pokes a button by its label). */
+  planChipLabels: Array<string | null> = [];
+
   setChipLabels(primaryOnly: boolean, primaryLabel = 'Keep this plan', secondaryLabel?: string): void {
+    this.planChipLabels = [primaryLabel, primaryOnly ? null : (secondaryLabel ?? this.planChipLabels[1] ?? null)];
     this.lighterChip.visible = !primaryOnly && this.keepChip.visible;
     const uniforms = this.chipUniforms[0];
     uniforms.uMap.value.dispose();
@@ -1648,6 +1658,19 @@ export class DeskVisuals {
     this.ornament.position.set(x0 + BOTTOM_ROW.button + BOTTOM_ROW.gap, ORNAMENT_ROW.y, rz);
     this.voiceButton.position.set(x0 + 2 * (BOTTOM_ROW.button + BOTTOM_ROW.gap), ORNAMENT_ROW.y, rz);
     this.immersionToggle.position.set(rowW / 2 - BOTTOM_ROW.capsule / 2, ORNAMENT_ROW.y, rz);
+    // 10 Nov: each button of the row faces your eyes squarely, its baseline kept as level as that allows (x axis =
+    // the row's own axis, made perpendicular to the line of sight). A flat tilted row seen from its middle sheared the
+    // end buttons ("Rituals" read as italics); a plain yaw rolled them like a fan. Last frame's matrix is close enough.
+    this.root.worldToLocal(this.camera.getWorldPosition(this.headLocal));
+    for (const m of [this.ritualsOrnament, this.ornament, this.voiceButton, this.immersionToggle]) {
+      const n = this.faceN.copy(this.headLocal).sub(m.position);
+      if (n.lengthSq() < 0.01) continue; // head on the button: keep the last pose
+      n.normalize();
+      const x = this.faceX.set(1, 0, 0).addScaledVector(n, -n.x);
+      if (x.lengthSq() < 0.01) continue;
+      x.normalize();
+      m.quaternion.setFromRotationMatrix(this.faceM.makeBasis(x, this.faceY.crossVectors(n, x), n));
+    }
     if (this.immersionPulseT > 0) this.immersionPulseT = Math.max(0, this.immersionPulseT - dt);
     // Two soft pulses (sin² over 2 × 1.2 s), redrawn in 6 steps only (a canvas upload per step, not per frame).
     const pulse = this.immersionPulseT > 0 ? Math.sin(((2.4 - this.immersionPulseT) / 1.2) * Math.PI) ** 2 : 0;

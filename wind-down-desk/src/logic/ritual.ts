@@ -131,6 +131,11 @@ export function caption(state: RitualState, extra: { listening: boolean; micAvai
           ? 'What is on your mind? Touch the little lamp and just talk.'
           : 'No microphone. Touch the little lamp for an example evening.';
       }
+      // 10 Nov: without a microphone the line never asks to speak (seen on a first evening: "Say that's it" over
+      // the example stone, to someone who cannot be heard).
+      if (!extra.micAvailable) {
+        return 'Pinch a stone and place it: Tomorrow, Later, or Let go.';
+      }
       return extra.listening
         ? 'Keep going. Say "that\'s it" when your head feels lighter.'
         : 'Pinch a stone and place it. Or say "dentist, tomorrow".';

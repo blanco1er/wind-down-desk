@@ -184,7 +184,9 @@ export function keptSummary(nights: readonly NightRecord[], today: string): stri
   if (kept.length === 0 && stars === 0) return 'Your sky starts tonight. Keep a good thing, or let one go.';
   const starPart = stars > 0 ? `${count(stars)} ${stars === 1 ? 'star' : 'stars'} for what you let go` : '';
   if (kept.length === 0) return `${cap(starPart)}.`;
-  const keptPart = `${cap(count(kept.length))} good ${kept.length === 1 ? 'thing' : 'things'} these two weeks`;
+  // 10 Nov: on a first evening (everything kept is tonight's) "these two weeks" rang false.
+  const onlyTonight = recent.every((n) => (n.kept ?? []).length === 0 || n.date === today);
+  const keptPart = `${cap(count(kept.length))} good ${kept.length === 1 ? 'thing' : 'things'} ${onlyTonight ? 'tonight' : 'these two weeks'}`;
   const first = starPart.length > 0 ? `${keptPart}, and ${starPart}.` : `${keptPart}.`;
   const again = recurring(kept);
   return again != null ? `${first} ${cap(again.text)} came back ${again.count === 2 ? 'twice' : `${count(again.count)} times`}.` : first;

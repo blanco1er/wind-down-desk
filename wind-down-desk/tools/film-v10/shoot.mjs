@@ -500,9 +500,10 @@ export default async function run({ frame, page, cdp, workspaceRoot }) {
     else await pickRitual('sleep');
     if (await until(() => window.__wdd.tension().side === 'out', 4000)) { await wait(400); await R.poke('keep'); }
     await until(() => window.__wdd.evening().mode === 'night', 6000);
-    await until(() => window.__wdd.night().step === 2, 20000);
+    // v10 night: "Sleep well." with one button, Lights out (the primary chip): touched, the session ends.
+    await until(() => (window.__wdd.debug().visuals.replyLabels ?? []).includes('Lights out'), 20000);
     await wait(500);
-    await R.poke('lighter');
+    await R.poke('keep');
     const ended = await until(() => !window.__wdd.perf().xr, 20000);
     const seconds = (Date.now() - tA) / 1000;
     log(`busstop ${seconds.toFixed(1)} s ended=${ended}`);

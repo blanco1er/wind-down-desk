@@ -82,6 +82,11 @@ export default async function run({ frame, page, cdp }) {
     const s = await snap();
     const presses = await js(() => window.__wdd.presses().last.slice(-3).join(','));
     log.push({ s: +((Date.now() - t0) / 1000).toFixed(1), step, mode: s.mode, phase: s.phase, ...extra, presses });
+    // 10 Nov: SHOTS=<folder> keeps one picture per step, to review the evening by eye (never part of the verdict).
+    if (process.env.SHOTS) {
+      const name = `${part}-${String(log.length).padStart(2, '0')}-${step.replace(/[^a-z0-9]+/gi, '-').slice(0, 40)}.png`;
+      await page.screenshot({ path: `${process.env.SHOTS}/${name}` }).catch(() => {});
+    }
   };
   // 29 Oct: a block ends the part (no step is logged as done after a BLOCKED).
   let blocked = null;
@@ -101,9 +106,11 @@ export default async function run({ frame, page, cdp }) {
       let sc = window.__wdd.debug().visuals.root;
       while (sc.parent) sc = sc.parent;
       const on = (n) => { const o = sc.getObjectByName(n); if (o == null) return 0; for (let q = o; q; q = q.parent) if (!q.visible) return 0; return 1; };
-      return on('film-set-room') + on('film-set-table');
+      const tris = (n) => { const o = sc.getObjectByName(n); if (o == null || !on(n)) return 0; let t = 0; o.traverse((m) => { const g = m.geometry; if (m.isMesh && g) t += (g.index ? g.index.count : g.attributes.position.count) / 3; }); return t; };
+      // Stereo: the renderer counts each mesh once per eye.
+      return { draws: on('film-set-room') + on('film-set-table'), triangles: 2 * (tris('film-set-room') + tris('film-set-table')) };
     });
-    draws[name] = { perEyeP50: p.drawCalls.p50 / 2, perEyeMax: p.drawCalls.max / 2, device: p.drawCalls.max / 2 - decor, triangles: p.triangles.max, xr: p.xr };
+    draws[name] = { perEyeP50: p.drawCalls.p50 / 2, perEyeMax: p.drawCalls.max / 2, device: p.drawCalls.max / 2 - decor.draws, triangles: p.triangles.max, trianglesDevice: Math.round(p.triangles.max - decor.triangles), xr: p.xr };
     // Over budget: which objects draw (onBeforeRender per draw and per eye, over ~0.6 s), to know what to merge.
     if (draws[name].device > 25 || process.env.DRAW_WHO === '1') draws[name].who = await drawWho();
   };
@@ -346,13 +353,29 @@ export default async function run({ frame, page, cdp }) {
     await wait(600);
     // The journal: Your sky → Earlier → Close.
     await openMenuAndPick('sky');
+    // v10: "Your sky" first opens the memory world (replies "Journal" / "Close"); "Journal" then opens the journal.
+    if (!(await until(() => window.__wdd.journal().open, 2500))) {
+      await mark('Your sky: the memory world, "Journal" offered', { replies: await js(() => window.__wdd.debug().visuals.replyLabels) });
+      await H.poke('keep');
+    }
     if (!(await until(() => window.__wdd.journal().open, 4000))) await fail('the journal did not open');
     await wait(1400);
     await measure('journal');
-    await H.poke('keep');
-    await wait(900);
+    // 10 Nov: the journal's buttons depend on how many evenings there are (one evening → only "Close"): poke by label.
+    const chipFor = async (re) => {
+      const labels = (await js(() => window.__wdd.debug().visuals.planChipLabels ?? null)) ?? [];
+      const i = labels.findIndex((l) => re.test(l ?? ''));
+      return i < 0 ? null : i === 0 ? 'keep' : 'lighter';
+    };
+    const earlier = await chipFor(/^(Earlier|Latest)/u);
+    if (earlier != null) {
+      await H.poke(earlier);
+      await wait(900);
+    }
     const j = await js(() => window.__wdd.journal());
-    await H.poke('lighter');
+    const close = await chipFor(/^Close/u);
+    if (close == null) await fail('the journal has no Close button');
+    else await H.poke(close);
     await wait(900);
     await mark('journal: opened, Earlier, Close', { earlier: j.index, closed: !(await js(() => window.__wdd.journal().open)) });
     // Places in the lamp: next, choose, Full, then back to the room.

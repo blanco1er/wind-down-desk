@@ -95,3 +95,14 @@ test('a second evening shows its number from the first seconds (progress visible
   const second = new RitualMemory(s, () => new Date('2026-10-22T21:00:00'));
   assert.equal(second.welcomeLine(), 'Evening 2 at your desk. 1 star in your sky.');
 });
+
+test('10 Nov: tonight never counts as an earlier evening (back on the page after Lights out)', () => {
+  const s = store();
+  const first = new RitualMemory(s, at('2026-10-20T21:00:00'));
+  first.recordNight({ tomorrow: [], later: [], letGo: ['That comment'] });
+  assert.equal(first.welcomeLine(), 'Your first evening is kept. 1 star in your sky.');
+  assert.equal(new RitualMemory(s, at('2026-10-20T23:30:00')).welcomeLine(), 'Your first evening is kept. 1 star in your sky.', 'same evening, a second visit');
+  const third = new RitualMemory(s, at('2026-10-22T21:00:00'));
+  third.recordNight({ tomorrow: [], later: [], letGo: [] });
+  assert.equal(third.welcomeLine(), 'Evening 2 at your desk. 1 star in your sky.', 'still evening 2 once it is saved');
+});

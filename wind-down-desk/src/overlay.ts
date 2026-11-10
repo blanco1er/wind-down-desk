@@ -107,6 +107,8 @@ export function mountOverlay(world: World, landing: LandingState): void {
 
   world.visibilityState.subscribe((state) => {
     root.classList.toggle('hidden', state !== VisibilityState.NonImmersive);
+    // 10 Nov: back from the headset, the card tells tonight's truth (it kept the line read at page load).
+    if (state === VisibilityState.NonImmersive) memory.textContent = services.memory.welcomeLine();
   });
 }
 

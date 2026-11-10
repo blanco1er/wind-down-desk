@@ -100,3 +100,35 @@ test('v8: a pronoun alone never becomes a stone ("I keep replaying that.")', asy
   const titles = extractDrafts("The slides for Monday aren't done. I keep replaying that.", ['Reply to the landlord']).map((d) => d.title);
   assert.deepEqual(titles, ['Slides for Monday']);
 });
+
+test('10 Nov: everyday sentences become clean stones in the right bowl', () => {
+  const stones = (said: string) => extractDrafts(said).map((d) => `${d.title} → ${d.suggestion}`);
+  const cases: Array<[string, string[]]> = [
+    ['I keep thinking about the presentation for my manager next week', ['Presentation for my manager → later']],
+    ['I had a fight with my sister and I feel bad about it', ['Fight with my sister → later']],
+    ["I don't know if I can pay the rent this month", ['Pay the rent this month → tomorrow']],
+    [
+      'I need to finish the report before Thursday and book the flights for the trip',
+      ['Finish the report → tomorrow', 'Book flights for trip → tomorrow'],
+    ],
+    ["I'm afraid I will fail the exam", ['What if I fail the exam → let-go']],
+    ['There is so much to do at work and I feel overwhelmed', ['So much to do at work → later']],
+    ['I have to pick up the kids at five and buy groceries', ['Pick up the kids at five → tomorrow', 'Buy groceries → tomorrow']],
+    ['I feel like I am not good enough', ['Not good enough → let-go']],
+    ['The car is making a weird noise again', ['Car is making a weird noise → tomorrow']],
+    ["I haven't called my dad in weeks", ['Call my dad → later']],
+    ['Taxes are due and I have not started', ['Taxes are due → tomorrow']],
+    [
+      'I need to send the invoice, call the plumber and buy a birthday present for Anna',
+      ['Send the invoice → tomorrow', 'Call the plumber → tomorrow', 'Buy a birthday present → tomorrow'],
+    ],
+    ['I said something stupid at dinner and everyone heard', ['Something stupid at dinner → let-go']],
+    ["I can't sleep because of the interview tomorrow", ['Interview tomorrow → tomorrow']],
+    ['I forgot to reply to Sarah and now it feels too late', ['Reply to Sarah → tomorrow']],
+    ['My daughter is sick and I have a deadline on Monday', ['Daughter is sick → later', 'Deadline on Monday → tomorrow']],
+    ['I think my friend is angry with me', ['Friend is angry with me → later']],
+  ];
+  for (const [said, expected] of cases) {
+    assert.deepEqual(stones(said), expected, said);
+  }
+});

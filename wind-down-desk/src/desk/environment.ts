@@ -258,7 +258,7 @@ export class PlaceBackdrop {
           vec3 col = mix(a, b, k);
           float alpha = mix(uState.x, uState.y, k);
           // Table stays: the lower view (your real table and hands) remains passthrough.
-          float keep = mix(smoothstep(-0.4, -0.14, d.y), 1.0, uState.w);
+          float keep = mix(smoothstep(-0.52, -0.05, d.y), 1.0, uState.w);
           alpha *= keep;
           if (alpha < 0.002) discard;
           col *= 1.0 - uDim * 0.45;

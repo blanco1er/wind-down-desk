@@ -873,7 +873,15 @@ export class RitualSystem extends createSystem({
       deskToWorld(frame, this.local, this.world3);
       stone.mesh.position.set(this.world3.x, this.world3.y, this.world3.z);
       stone.mesh.rotation.y = frame.yaw + stone.yawJitter;
-      stone.moving = false;
+      // 10 Nov: a stone caught mid-glide by a desk move finishes its glide on the moved desk (it used to freeze
+      // where it was — seen on a first evening: the example stone stuck against the lamp, over the "Let go" bowl).
+      if (stone.moving) {
+        for (const end of [stone.from, stone.to]) {
+          worldToDesk(previous, end, this.local);
+          deskToWorld(frame, this.local, this.world3);
+          end.set(this.world3.x, this.world3.y, this.world3.z);
+        }
+      }
     }
   }
 
@@ -999,7 +1007,10 @@ export class RitualSystem extends createSystem({
   }
 
   private placeDesk(frame: DeskFrame, mode: 'table' | 'floating', plane: PlaneCandidate | null, source: PlaceSource): void {
-    this.frame = frame;
+    // 10 Nov: a stone that landed before the desk found its place (the example stone falls after 8 s of silence,
+    // which can be before the table is found) follows the desk — it used to stay behind, off the tray, 1 start in 3.
+    this.relocate(this.frame, frame);
+    if (this.stones.size > 0) this.layoutUnsorted(0.45);
     this.placementMode = mode;
     this.placeSource = source;
     track('placed', { source, mode }, 'placed');
@@ -5296,6 +5307,8 @@ export class RitualSystem extends createSystem({
   // ------------------------------------------------------------ 28 Oct: "How heavy tonight?" (the bead)
 
   private tensionToken = 0;
+  /** 10 Nov: when the bead's question was asked (for the hesitation help: a sway, then the evening goes on by itself). */
+  private tensionAskedAt = 0;
 
   /**
    * The bead's question. The rail rises out of the tray; a fingertip on it slides the bead (the value floats above
@@ -5309,6 +5322,7 @@ export class RitualSystem extends createSystem({
     this.tensionToken++;
     this.tensionSide = side;
     this.tensionThen = then;
+    this.tensionAskedAt = this.elapsed;
     // Arrival: the bead starts in the middle. Good night: it starts where you came in, and stays there as a
     // reflection while you move it.
     const start = side === 'out' && tonightIn != null ? tensionU(tonightIn) : 0.5;
@@ -5424,6 +5438,16 @@ export class RitualSystem extends createSystem({
         this.lastActivity = this.elapsed;
       }
       if (kept != null && this.tensionSide != null) this.keepTension(kept, 'hand');
+      else if (this.tensionSide != null && !dial.touching) {
+        // 10 Nov (hesitation): nobody is left in front of a question. After 7 s untouched the bead sways a little
+        // ("slide me"); after 30 s (45 s at good night) the evening simply goes on, nothing recorded.
+        const idle = this.elapsed - Math.max(this.tensionAskedAt, this.lastActivity);
+        if (idle > (this.tensionSide === 'in' ? 30 : 45)) this.skipTension();
+        else if (idle > 7) {
+          const k = Math.min(1, (idle - 7) / 2);
+          this.tensionRail.bead = Math.min(1, Math.max(0, dial.u + 0.045 * k * k * (3 - 2 * k) * Math.sin((idle - 7) * 1.7)));
+        }
+      }
     }
     this.tensionRail.update(dt, this.tensionDial?.value ?? 0);
   }

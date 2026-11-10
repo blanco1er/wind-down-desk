@@ -617,12 +617,18 @@ export function createTrayMaterial(layout: DeskLayout, wood: Texture, labels: Ca
               vec2 luv = vec2((float(bi) + u) / 3.0, v);
               // Fade the effect out at the band edges (mip blur never draws a line there).
               float band = smoothstep(0.0, 0.14, v) * smoothstep(1.0, 0.86, v) * smoothstep(0.0, 0.05, u) * smoothstep(1.0, 0.95, u);
-              vec3 c = texture2D(uLabels, luv).rgb * band;
+              // Explicit derivatives: the samples below sit in a data-dependent branch, where implicit
+              // mip selection is undefined at the branch edge (it drew a thin dark contour around the names).
+              vec2 lgx = dFdx(luv);
+              vec2 lgy = dFdy(luv);
+              vec3 c = textureGrad(uLabels, luv, lgx, lgy).rgb * band;
               if (c.g + c.b > 0.002) {
                 vec2 ex = vec2(uLabelTexel.x, 0.0);
                 vec2 ey = vec2(0.0, uLabelTexel.y);
-                float gu = (texture2D(uLabels, luv + ex).g - texture2D(uLabels, luv - ex).g) * band;
-                float gv = (texture2D(uLabels, luv + ey).g - texture2D(uLabels, luv - ey).g) * band;
+                // The relief fades in with the halo, so the cut has no hard start.
+                float reliefIn = smoothstep(0.002, 0.08, c.g + c.b);
+                float gu = (textureGrad(uLabels, luv + ex, lgx, lgy).g - textureGrad(uLabels, luv - ex, lgx, lgy).g) * band * reliefIn;
+                float gv = (textureGrad(uLabels, luv + ey, lgx, lgy).g - textureGrad(uLabels, luv - ey, lgx, lgy).g) * band * reliefIn;
                 float rr = max(length(rel), 0.01);
                 float dGds = gu * 0.5 / uLabelTexel.x / (6.0 * uLabel.x * rr);
                 float dGdh = gv * 0.5 / uLabelTexel.y / (uLabel.z - uLabel.y);

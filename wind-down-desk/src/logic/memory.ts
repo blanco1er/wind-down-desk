@@ -503,13 +503,16 @@ export class RitualMemory {
 
   /** Short welcome line for the arrival caption. */
   welcomeLine(): string {
-    const nights = this.data.nights.length;
-    if (nights === 0) {
-      return 'First evening at your desk.';
-    }
-    const streak = this.streak();
+    // 10 Nov: tonight's own record never counts as an earlier evening (back on the page after Lights out, the card
+    // said "First evening" with an evening just saved, and a second visit the same night said "Evening 2").
+    const tonight = eveningDate(this.now());
+    const nights = this.data.nights.filter((n) => n.date !== tonight).length;
     const stars = this.totalLetGo();
     const sky = stars === 0 ? '' : ` ${stars} ${stars === 1 ? 'star' : 'stars'} in your sky.`;
+    if (nights === 0) {
+      return this.data.nights.length === 0 ? 'First evening at your desk.' : `Your first evening is kept.${sky}`;
+    }
+    const streak = this.streak();
     if (streak >= 2) {
       return `Evening ${streak} in a row.${sky}`;
     }

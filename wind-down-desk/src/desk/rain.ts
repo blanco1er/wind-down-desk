@@ -60,7 +60,7 @@ const COMMON = /* glsl */ `
   // Table stays: below ≈ −8° you see your real room, never rain.
   float keep(vec3 wp) {
     vec3 d = normalize(wp - cameraPosition);
-    return mix(smoothstep(-0.4, -0.14, d.y), 1.0, uImm.w);
+    return mix(smoothstep(-0.52, -0.05, d.y), 1.0, uImm.w);
   }
 `;
 

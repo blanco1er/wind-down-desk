@@ -196,6 +196,7 @@ test('Your sky: one or two true sentences about what was kept and let go (nothin
   assert.equal(keptSummary([], '2026-10-29'), 'Your sky starts tonight. Keep a good thing, or let one go.');
   assert.equal(keptSummary([n('2026-10-29', [], ['Work'])], '2026-10-29'), 'One star for what you let go.');
   assert.equal(keptSummary([n('2026-10-28', ['A good meal']), n('2026-10-29', ['Rest'])], '2026-10-29'), 'Two good things these two weeks.');
+  assert.equal(keptSummary([n('2026-10-29', ['A good meal', 'Rest', 'Music'], ['Work'])], '2026-10-29'), 'Three good things tonight, and one star for what you let go.', 'a first evening never says "these two weeks"');
   const nights = [n('2026-10-10', ['Old thing']), n('2026-10-27', ['Someone kind', 'A good meal'], ['Work', 'Money']), n('2026-10-29', ['someone kind', 'Rest'], ['Taxes'])];
   assert.equal(keptSummary(nights, '2026-10-29'), 'Four good things these two weeks, and three stars for what you let go. Someone kind came back twice.', 'older than 14 days does not count; the stars count all evenings');
 });

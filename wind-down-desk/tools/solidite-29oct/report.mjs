@@ -35,7 +35,7 @@ lines.push(`Console errors (page listener): ${errOnly.length}${errOnly.length ? 
 lines.push(`Console errors (CLI capture since start): ${consoleErrors.length}${consoleErrors.length ? `\n  ${consoleErrors.slice(0, 12).join('\n  ')}` : ''}`);
 lines.push('Draw calls per eye — emulator p50 / max, then on the headset (without the emulator-only room photo and table); budget 25:');
 for (const [k, v] of Object.entries(draws)) {
-  lines.push(`  ${v.device > 25 ? 'OVER ' : '     '}${k.padEnd(34)} ${v.perEyeP50} / ${v.perEyeMax}  → headset ${v.device}   triangles ${v.triangles}${v.xr ? '' : '  (not in XR!)'}`);
+  lines.push(`  ${v.device > 25 ? 'OVER ' : '     '}${k.padEnd(34)} ${v.perEyeP50} / ${v.perEyeMax}  → headset ${v.device}   triangles ${v.triangles} → headset ${v.trianglesDevice ?? '?'}${(v.trianglesDevice ?? 0) > 100000 ? '  OVER' : ''}${v.xr ? '' : '  (not in XR!)'}`);
   if (v.who) for (const w of v.who) lines.push(`         ${w}`);
 }
 console.log(lines.join('\n'));
