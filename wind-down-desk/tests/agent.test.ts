@@ -132,3 +132,11 @@ test('10 Nov: everyday sentences become clean stones in the right bowl', () => {
     assert.deepEqual(stones(said), expected, said);
   }
 });
+
+test('12 Nov: a clause that hangs on what / how / everything is kept whole', () => {
+  const stones = (said: string) => extractDrafts(said).map((d) => `${d.title} → ${d.suggestion}`);
+  assert.deepEqual(stones('I keep thinking about what I said at lunch'), ['What I said at lunch → let-go']);
+  assert.deepEqual(stones('I keep obsessing over what I said at dinner'), ['What I said at dinner → let-go']);
+  assert.deepEqual(stones('And I keep thinking about that awkward thing I said at lunch.'), ['Awkward thing → let-go']);
+  assert.deepEqual(stones('The slides I made for Monday are bad'), ['Slides → tomorrow']);
+});

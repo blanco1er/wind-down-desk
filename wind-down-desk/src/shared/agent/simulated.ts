@@ -58,13 +58,18 @@ export function compactTitle(phrase: string, target = 24): string {
     .replace(/^(?:(?:i|we)\s+)?(?:keep|kept)\s+forgetting\s+(?:to\s+|about\s+)?/iu, '')
     // 10 Nov (seen on a stone): "I keep thinking about the presentation" read "Keep thinking".
     .replace(/^(?:(?:i|we)\s+)?(?:keep|kept|can'?t stop|cannot stop)\s+(?:thinking|worrying|stressing|obsessing)\s+(?:about|over)\s+/iu, '')
+    .replace(/^(?:i|we)\s+(?:still\s+|always\s+|just\s+)?(?:think|worry|stress|obsess)\s+(?:about|over)\s+/iu, '')
+    .replace(/^(?:i|we)\s+(?:really\s+|still\s+)?regret\s+/iu, '')
     .replace(/^(?:(?:i|we)\s+)?(?:forgot|haven'?t managed|still haven'?t)\s+to\s+/iu, '')
     .replace(/^(?:i'?m|i am|we'?re|we are|am)\s+(?:so\s+|really\s+|a bit\s+)?(?:worried|stressed|anxious|nervous|thinking)\s+about\s+/iu, '')
     .replace(/^(?:(?:i|we)\s+)?(?:have|got|have got|'ve got)\s+an?\s+/iu, '')
     .replace(/^(the|that|this|my|our|a|an)\s+/iu, '')
     .replace(/\s+(aren'?t|isn'?t|is not|are not) (done|finished|ready|sorted)( yet)?$/iu, '')
     .replace(/\s+(is|are) due\s+/iu, ' due ')
-    .replace(/\s+(i|we|you|he|she|they)\s+(made|said|did|had|sent|wrote|got)\b.*$/iu, '')
+    // 12 Nov (seen on a stone): "what I said at lunch" read "What" — a clause that hangs on what/how/everything stays.
+    .replace(/\s+(i|we|you|he|she|they)\s+(made|said|did|had|sent|wrote|got)\b.*$/iu, (m, _a, _b, at: number, whole: string) =>
+      /(?:^|\s)(?:what|how|why|whatever|everything|all|something|the\s+(?:thing|things|way|stuff))$/iu.test(whole.slice(0, at).trim()) ? m : '',
+    )
     .trim();
   const comma = t.indexOf(',');
   if (comma > 0 && t.slice(0, comma).split(' ').length >= 2) {
